@@ -1,0 +1,43 @@
+[package]
+name = "allora"
+version = "0.1.0"
+edition = "2021"
+authors = ["Allora Contributors"]
+description = "Allora: A Rust-native library implementing Enterprise Integration Patterns (EIP) for building message routing and mediation components. An Open Source integration framework that helps you connect everything into one continuous, high-performance flow."
+license = "Apache-2.0"
+repository = "https://example.com/allora"
+readme = "README.md"
+keywords = ["integration", "eip", "messaging", "routing", "integration-framework"]
+categories = ["network-programming", "asynchronous"]
+
+[lib]
+name = "allora"
+path = "src/lib.rs"
+
+[features]
+default = ["async"]
+async = ["tokio", "async-trait"]
+serde = ["dep:serde"]
+http = ["hyper", "async"]
+
+[dependencies]
+async-trait = { version = "0.1", optional = true }
+thiserror = "1.0"
+futures = "0.3"
+tracing = "0.1"
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = "1.0"
+hyper = { version = "0.14", features = ["full"], optional = true }
+uuid = { version = "1.8", features = ["v4"] }
+
+[dependencies.tokio]
+version = "1.39"
+features = ["rt", "rt-multi-thread", "macros", "sync"]
+optional = true
+
+[dev-dependencies]
+rand = "0.8"
+serial_test = "3.2.0"
+
+[package.metadata.docs.rs]
+features = ["async", "serde", "http"]
