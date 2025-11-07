@@ -18,6 +18,7 @@
 //! use async_trait::async_trait;
 //! #[derive(Debug)]
 //! struct StubInbound;
+//! impl allora::adapter::BaseAdapter for StubInbound { fn id(&self) -> &str { "stub_inbound" } }
 //! #[async_trait]
 //! impl InboundAdapter for StubInbound {
 //!     async fn run(&self) -> Result<()> { Ok(()) }
@@ -31,10 +32,10 @@
 //! use allora::{adapter::{OutboundAdapter, Adapter, OutboundDispatchResult}, error::Result, Exchange, Message};
 //! use async_trait::async_trait;
 //! #[derive(Debug)] struct LoggingOutbound;
+//! impl allora::adapter::BaseAdapter for LoggingOutbound { fn id(&self) -> &str { "logging_outbound" } }
 //! #[async_trait]
 //! impl OutboundAdapter for LoggingOutbound {
 //!     async fn dispatch(&self, exchange: &Exchange) -> Result<OutboundDispatchResult> {
-//!         // pretend to send exchange.out_msg or in_msg; mark acknowledged
 //!         Ok(OutboundDispatchResult { acknowledged: true, message: exchange.out_msg.as_ref().and_then(|m| m.body_text()).map(|s| format!("echo:{s}")) })
 //!     }
 //! }
@@ -64,7 +65,10 @@ use std::fmt::Debug;
 /// Marker trait for all adapters (inbound or outbound). Intentionally empty so it can be
 /// used for blanket implementations of decoration layers. Do NOT add methods here unless they
 /// apply uniformly to both inbound and outbound adapters.
-pub trait Adapter: Send + Sync + Debug {}
+pub trait BaseAdapter: Send + Sync + Debug {
+    /// Stable identifier for this adapter instance (user-assigned or generated).
+    fn id(&self) -> &str;
+}
 
 /// Inbound adapter: receives external data/events and produces `Exchange`s routed inside Allora.
 ///
@@ -74,7 +78,7 @@ pub trait Adapter: Send + Sync + Debug {}
 /// * Dispatch the `Exchange` via a channel / route.
 /// * Manage lifecycle (bind ports, subscribe to topics, handle shutdown).
 #[async_trait]
-pub trait InboundAdapter: Adapter {
+pub trait InboundAdapter: BaseAdapter {
     /// Run the adapter until stopped (lifecycle). Implementations define their own shutdown semantics.
     async fn run(&self) -> Result<()>;
 }
@@ -97,15 +101,39 @@ pub struct OutboundDispatchResult {
 /// * Map remote responses (status, id) back into the returned `OutboundDispatchResult`.
 #[allow(dead_code)]
 #[async_trait]
-pub trait OutboundAdapter: Adapter {
+pub trait OutboundAdapter: BaseAdapter {
     /// Perform a single outbound dispatch. Return an `OutboundDispatchResult` describing outcome.
     async fn dispatch(&self, exchange: &Exchange) -> Result<OutboundDispatchResult>;
 }
-
-impl<T> Adapter for T where T: Send + Sync + Debug {}
 
 /// Ensure a `correlation_id` header exists on the inbound message of the provided `Exchange`.
 /// Safe to call multiple times (id will be stable after first generation).
 pub fn ensure_correlation(exchange: &mut Exchange) {
     exchange.correlation_id();
+}
+
+/// Staged builder root: pattern-first entry (`Adapter::inbound().http()...`).
+pub struct Adapter;
+impl Adapter {
+    pub fn inbound() -> InboundStage {
+        InboundStage
+    }
+    pub fn outbound() -> OutboundStage {
+        OutboundStage
+    }
+}
+pub struct InboundStage;
+pub struct OutboundStage;
+
+impl InboundStage {
+    #[cfg(feature = "http")]
+    pub fn http(self) -> crate::http_inbound_adapter::HttpInboundBuilder {
+        crate::http_inbound_adapter::HttpInboundBuilder::new()
+    }
+}
+impl OutboundStage {
+    #[cfg(feature = "http")]
+    pub fn http(self) -> crate::http_outbound_adapter::HttpOutboundAdapterBuilder {
+        crate::http_outbound_adapter::HttpOutboundAdapter::builder()
+    }
 }

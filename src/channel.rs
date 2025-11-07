@@ -26,8 +26,9 @@
 ///! # Example (basic dispatch)
 ///! ```
 ///! use allora::{route::Route, processor::ClosureProcessor, Message, Exchange, InMemoryChannel};
+///! use allora::channel::ChannelBuilder;
 ///! let route = Route::new().add(ClosureProcessor::new(|ex| { ex.out_msg = Some(Message::from_text("ok")); Ok(()) })).build();
-///! let channel = InMemoryChannel::new(route);
+///! let channel = ChannelBuilder::point_to_point().in_memory().route(route).build();
 ///! let ex = Exchange::new(Message::from_text("ping"));
 ///! let processed = channel.dispatch(ex).unwrap();
 ///! assert_eq!(processed.out_msg.unwrap().body_text(), Some("ok"));
@@ -36,12 +37,15 @@
 ///! # Example (request/reply with correlation)
 ///! ```
 ///! use allora::{route::Route, processor::ClosureProcessor, Message, Exchange, InMemoryChannel, CorrelationSupport};
+///! use allora::channel::ChannelBuilder;
 ///! let route = Route::new().add(ClosureProcessor::new(|ex| { ex.out_msg = Some(Message::from_text("reply")); Ok(()) })).build();
-///! let channel = InMemoryChannel::new(route);
+///! let channel = ChannelBuilder::point_to_point().in_memory().route(route).build();
 ///! let corr_id = channel.send_with_correlation(Exchange::new(Message::from_text("ask"))).unwrap();
 ///! let reply = channel.receive_by_correlation(&corr_id).unwrap();
 ///! assert_eq!(reply.out_msg.unwrap().body_text(), Some("reply"));
 ///! ```
+#[allow(dead_code)]
+const _CHANNEL_DOC_EXAMPLE: () = ();
 ///
 use crate::error::Error;
 use crate::{error::Result, route::Route, Exchange};
@@ -73,6 +77,8 @@ use tokio::sync::Mutex;
 /// that `Exchange` instance is returned only if the implementation chooses (InMemoryChannel does not).
 #[cfg_attr(feature = "async", async_trait)]
 pub trait Channel: Send + Sync + Debug {
+    /// Stable identifier for this channel instance.
+    fn id(&self) -> &str;
     /// Process (mutate) an `Exchange` and return the final state (sync variant, non-`async` feature).
     #[cfg(not(feature = "async"))]
     fn dispatch(&self, exchange: Exchange) -> Result<Exchange>;
@@ -129,6 +135,7 @@ pub trait CorrelationSupport: Send + Sync + Debug {
 /// Existing code relying on `corr_id` remains compatible.
 #[derive(Clone, Debug)]
 pub struct InMemoryChannel {
+    id: String,
     route: Arc<Route>,
     #[cfg(not(feature = "async"))]
     out_queue: Arc<Mutex<VecDeque<Exchange>>>,
@@ -139,8 +146,21 @@ pub struct InMemoryChannel {
 
 impl InMemoryChannel {
     /// Construct a new in-memory channel wrapping the provided `Route`.
-    pub fn new(route: Route) -> Self {
+    pub(crate) fn new(route: Route) -> Self {
         Self {
+            id: format!("channel:{}", uuid::Uuid::new_v4()),
+            route: Arc::new(route),
+            #[cfg(not(feature = "async"))]
+            out_queue: Arc::new(Mutex::new(VecDeque::new())),
+            #[cfg(feature = "async")]
+            out_queue: Arc::new(Mutex::new(Vec::new())),
+            corr_seq: Arc::new(AtomicU64::new(1)),
+        }
+    }
+    /// Construct a new in-memory channel with a custom id wrapping the provided `Route`.
+    pub(crate) fn with_id<S: Into<String>>(id: S, route: Route) -> Self {
+        Self {
+            id: id.into(),
             route: Arc::new(route),
             #[cfg(not(feature = "async"))]
             out_queue: Arc::new(Mutex::new(VecDeque::new())),
@@ -192,6 +212,9 @@ impl InMemoryChannel {
 
 #[cfg_attr(feature = "async", async_trait)]
 impl Channel for InMemoryChannel {
+    fn id(&self) -> &str {
+        &self.id
+    }
     #[cfg(not(feature = "async"))]
     fn dispatch(&self, mut exchange: Exchange) -> Result<Exchange> {
         self.route.run(&mut exchange)?;
@@ -296,7 +319,61 @@ impl CorrelationSupport for InMemoryChannel {
     }
 }
 
-/// Type alias for the current default channel implementation. This maintains a simple
-/// migration path; user code can depend on `DefaultChannel` today and later switch.
+/// Staged channel builder root providing pattern-based entry points.
+/// Usage: `ChannelBuilder::point_to_point().in_memory().route(route).id("my-chan").build()`
+pub struct ChannelBuilder;
+impl ChannelBuilder {
+    /// Point-to-point pattern (single logical consumer path applying a Route).
+    pub fn point_to_point() -> PointToPointStage {
+        PointToPointStage
+    }
+}
+/// Stage representing a point-to-point channel pattern; next select a concrete kind.
+pub struct PointToPointStage;
+impl PointToPointStage {
+    /// Select the in-memory channel kind.
+    pub fn in_memory(self) -> InMemoryChannelBuilder {
+        InMemoryChannelBuilder {
+            id: None,
+            route: None,
+        }
+    }
+}
+/// Builder for `InMemoryChannel` produced via staged pattern.
+pub struct InMemoryChannelBuilder {
+    id: Option<String>,
+    route: Option<Route>,
+}
+impl InMemoryChannelBuilder {
+    /// Assign explicit channel id.
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+    /// Provide the Route to be applied by the channel.
+    pub fn route(mut self, route: Route) -> Self {
+        self.route = Some(route);
+        self
+    }
+    /// Build the channel, generating an id if not provided.
+    pub fn build(self) -> InMemoryChannel {
+        let route = self.route.expect("route must be set before build()");
+        match self.id {
+            Some(id) => InMemoryChannel::with_id(id, route),
+            None => InMemoryChannel::new(route),
+        }
+    }
+}
+/// Example (staged builder)
+/// ```
+/// use allora::{channel::ChannelBuilder, route::Route, processor::ClosureProcessor, Message, Exchange, Channel};
+/// let route = Route::new().add(ClosureProcessor::new(|ex| { ex.out_msg = Some(Message::from_text("ok")); Ok(()) })).build();
+/// let channel = ChannelBuilder::point_to_point().in_memory().route(route).id("chan-1").build();
+/// let ex = Exchange::new(Message::from_text("ping"));
+/// let processed = channel.dispatch(ex).unwrap();
+/// assert_eq!(processed.out_msg.unwrap().body_text(), Some("ok"));
+/// ```
+#[allow(dead_code)]
+const _STAGED_BUILDER_EXAMPLE: () = ();
+pub type ChannelRef = std::sync::Arc<dyn Channel>;
 pub type DefaultChannel = InMemoryChannel;
-pub type ChannelRef = std::sync::Arc<dyn Channel>; // ergonomic alias for trait object
