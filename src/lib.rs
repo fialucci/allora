@@ -25,6 +25,8 @@ pub mod endpoint;
 pub mod error;
 #[cfg(feature = "http")]
 pub mod http_inbound_adapter;
+#[cfg(feature = "http")]
+pub mod http_outbound_adapter;
 pub mod message;
 pub mod patterns;
 pub mod processor;
@@ -37,8 +39,11 @@ pub use adapter::{
 pub use channel::{
     Channel, ChannelRef, CorrelationSupport, DefaultChannel, InMemoryChannel, OutboundQueue,
 };
+pub use endpoint::{Endpoint, InMemoryEndpoint};
 pub use error::{Error, Result};
 #[cfg(feature = "http")]
 pub use http_inbound_adapter::HttpInboundAdapter;
+#[cfg(feature = "http")]
+pub use http_outbound_adapter::HttpOutboundAdapter;
 pub use message::{Exchange, Message, Payload};
 pub use processor::{BoxedProcessor, ClosureProcessor, Processor, SyncProcessor};

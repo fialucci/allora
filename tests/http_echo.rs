@@ -1,6 +1,8 @@
 #![cfg(feature = "http")]
+use allora::adapter::Adapter;
+use allora::channel::ChannelBuilder;
 use allora::route::Route;
-use allora::{ClosureProcessor, HttpInboundAdapter, InMemoryChannel, Message};
+use allora::{ClosureProcessor, Message};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -14,11 +16,21 @@ async fn http_echo_single_request_and_shutdown() {
             Ok(())
         }))
         .build();
-    let channel = Arc::new(InMemoryChannel::new(route));
+    let channel = Arc::new(
+        ChannelBuilder::point_to_point()
+            .in_memory()
+            .route(route)
+            .build(),
+    );
 
     // Use a fixed high port; in real tests consider dynamic port allocation.
     let addr: SocketAddr = "127.0.0.1:31001".parse().unwrap();
-    let adapter = HttpInboundAdapter::new(addr, channel.clone());
+    let adapter = Adapter::inbound()
+        .http()
+        .host("127.0.0.1")
+        .port(31001)
+        .channel(channel.clone())
+        .build();
     let server_handle = adapter.spawn_once();
 
     // Small delay to allow bind.
