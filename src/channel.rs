@@ -1,54 +1,42 @@
-///! Channel abstractions: dispatching, queuing, and request-reply correlation.
+///! Channel abstractions: queuing and request-reply correlation (pure pipe – no Route processing).
 ///!
 ///! # Overview
-///! A `Channel` is a lightweight conduit that applies a `Route` (ordered `Processor`s)
-///! to incoming `Exchange`s. This file defines:
-///! * [`Channel`] – core dispatch interface (sync or async depending on feature flags).
-///! * [`OutboundQueue`] – extension trait for retrieving processed Exchanges (queue semantics).
-///! * [`CorrelationSupport`] – extension trait for request/reply style correlation.
-///! * [`InMemoryChannel`] – default in-process implementation with optional queuing & correlation.
+///! A `Channel` is now a lightweight pipe: it accepts `Exchange`s (optionally assigns correlation)
+///! and stores them for retrieval. Transformation logic (filters/processors) lives outside
+///! in a `Route`, executed before sending to the channel.
 ///!
-///! # Sync vs Async
-///! With the `async` feature enabled:
-///! * Use `dispatch_async` for non-blocking operation.
-///! * A convenience synchronous wrapper `dispatch` is provided (spins a temporary runtime).
-///! Without `async`, only synchronous `dispatch` exists.
+///! This file defines:
+///! * [`Channel`] – core pipe interface (sync / async send depending on feature flags).
+///! * [`OutboundQueue`] – extension trait for retrieving queued Exchanges.
+///! * [`CorrelationSupport`] – extension trait for request/reply style correlation helpers.
+///! * [`InMemoryChannel`] – default in-process implementation with queue & correlation.
 ///!
-///! # Queue Semantics
-///! Channels implementing [`OutboundQueue`] push processed Exchanges onto an internal queue.
-///! This lets callers poll for route results after fire-and-forget `send` calls.
-///!
-///! # Correlation Semantics
-///! [`CorrelationSupport::send_with_correlation`] guarantees a correlation id header. For historical
-///! compatibility it sets `corr_id`; documentation recommends migrating to `correlation_id`.
-///! The implementation now mirrors the value into `correlation_id` when generating a new id.
-///!
-///! # Example (basic dispatch)
+///! # Example (pipe usage)
 ///! ```
-///! use allora::{route::Route, processor::ClosureProcessor, Message, Exchange, InMemoryChannel};
-///! use allora::channel::ChannelBuilder;
-///! let route = Route::new().add(ClosureProcessor::new(|ex| { ex.out_msg = Some(Message::from_text("ok")); Ok(()) })).build();
-///! let channel = ChannelBuilder::point_to_point().in_memory().route(route).build();
-///! let ex = Exchange::new(Message::from_text("ping"));
-///! let processed = channel.dispatch(ex).unwrap();
-///! assert_eq!(processed.out_msg.unwrap().body_text(), Some("ok"));
+///! use allora::{channel::{ChannelBuilder, OutboundQueue}, Message, Exchange};
+///! let channel = ChannelBuilder::point_to_point().in_memory().id("chan-1").build();
+///! channel.send(Exchange::new(Message::from_text("ping"))).unwrap();
+///! let ex = channel.try_receive().unwrap();
+///! assert_eq!(ex.in_msg.body_text(), Some("ping"));
 ///! ```
 ///!
-///! # Example (request/reply with correlation)
+///! # Example (processing outside channel)
 ///! ```
-///! use allora::{route::Route, processor::ClosureProcessor, Message, Exchange, InMemoryChannel, CorrelationSupport};
-///! use allora::channel::ChannelBuilder;
-///! let route = Route::new().add(ClosureProcessor::new(|ex| { ex.out_msg = Some(Message::from_text("reply")); Ok(()) })).build();
-///! let channel = ChannelBuilder::point_to_point().in_memory().route(route).build();
-///! let corr_id = channel.send_with_correlation(Exchange::new(Message::from_text("ask"))).unwrap();
-///! let reply = channel.receive_by_correlation(&corr_id).unwrap();
-///! assert_eq!(reply.out_msg.unwrap().body_text(), Some("reply"));
+///! use allora::{route::Route, processor::ClosureProcessor, Message, Exchange, channel::{ChannelBuilder, OutboundQueue}};
+///! let route = Route::new().add(ClosureProcessor::new(|ex| { ex.out_msg = Some(Message::from_text("done")); Ok(()) })).build();
+///! let mut ex = Exchange::new(Message::from_text("start"));
+///! route.run(&mut ex).unwrap(); // apply transformations
+///! let channel = ChannelBuilder::point_to_point().in_memory().build();
+///! channel.send(ex.clone()).unwrap();
+///! let stored = channel.try_receive().unwrap();
+///! assert_eq!(stored.out_msg.unwrap().body_text(), Some("done"));
 ///! ```
 #[allow(dead_code)]
 const _CHANNEL_DOC_EXAMPLE: () = ();
-///
+
 use crate::error::Error;
-use crate::{error::Result, route::Route, Exchange};
+use crate::route::Route;
+use crate::{error::Result, Exchange};
 #[cfg(feature = "async")]
 use async_trait::async_trait;
 #[cfg(not(feature = "async"))]
@@ -65,78 +53,55 @@ use tokio::runtime::Runtime;
 #[cfg(feature = "async")]
 use tokio::sync::Mutex;
 
-
-/// Core Channel interface: dispatches Exchanges through an associated Route.
-///
-/// Implementors may add capabilities via the extension traits:
-/// * [`OutboundQueue`] for retrieving processed results.
-/// * [`CorrelationSupport`] for request-reply flows.
-///
-/// # Error Handling
-/// Errors from processors propagate directly. If partial output was produced before an error,
-/// that `Exchange` instance is returned only if the implementation chooses (InMemoryChannel does not).
+/// Core Channel interface: pipe for sending Exchanges (no internal processing).
 #[cfg_attr(feature = "async", async_trait)]
 pub trait Channel: Send + Sync + Debug {
     /// Stable identifier for this channel instance.
     fn id(&self) -> &str;
-    /// Process (mutate) an `Exchange` and return the final state (sync variant, non-`async` feature).
+    /// Enqueue an `Exchange` (sync variant when `async` feature disabled).
     #[cfg(not(feature = "async"))]
-    fn dispatch(&self, exchange: Exchange) -> Result<Exchange>;
-    /// Asynchronous dispatch variant under the `async` feature.
+    fn send(&self, exchange: Exchange) -> Result<()>;
+    /// Async enqueue variant.
     #[cfg(feature = "async")]
-    async fn dispatch_async(&self, exchange: Exchange) -> Result<Exchange>;
-    /// Convenience synchronous wrapper for async environments (spawns a temporary runtime).
+    async fn send_async(&self, exchange: Exchange) -> Result<()>;
+    /// Convenience sync wrapper for async mode.
     #[cfg(feature = "async")]
-    fn dispatch(&self, exchange: Exchange) -> Result<Exchange> {
-        let rt = Runtime::new().map_err(|e| Error::other(e.to_string()))?;
-        rt.block_on(self.dispatch_async(exchange))
-    }
-    /// Fire-and-forget style send; default implementation delegates to `dispatch` and discards returned Exchange.
     fn send(&self, exchange: Exchange) -> Result<()> {
-        let _ = self.dispatch(exchange)?;
-        Ok(())
+        let rt = Runtime::new().map_err(|e| Error::other(e.to_string()))?;
+        rt.block_on(self.send_async(exchange))
     }
 }
 
-/// Extension trait for channels that maintain an outbound (processed) Exchange queue.
-/// Enables asynchronous decoupling: caller submits work then polls / blocks for completion.
+/// Extension trait for channels that maintain an outbound (queued) Exchange list.
 pub trait OutboundQueue: Send + Sync + Debug {
-    /// Non-blocking attempt to retrieve next processed Exchange (sync mode only).
     fn try_receive(&self) -> Option<Exchange>;
-    /// Async non-blocking attempt (only available with `async` feature).
     #[cfg(feature = "async")]
     fn try_receive_async(&self) -> impl std::future::Future<Output = Option<Exchange>> + Send;
-    /// Blocking retrieval with optional timeout (polling sleep strategy in current implementation).
     fn receive_blocking(&self, timeout: Option<Duration>) -> Option<Exchange>;
 }
 
-/// Extension trait for channels offering request-reply correlation semantics.
-/// The default implementation in [`InMemoryChannel`] uses a monotonic sequence to generate ids.
+/// Extension trait for correlation helpers on channels.
 pub trait CorrelationSupport: Send + Sync + Debug {
-    /// Send an Exchange, injecting a new correlation id if absent, returning the id.
     fn send_with_correlation(&self, exchange: Exchange) -> Result<String>;
-    /// Attempt to retrieve a processed Exchange matching the provided correlation id.
     fn receive_by_correlation(&self, corr_id: &str) -> Option<Exchange>;
-    /// Async variant of retrieval (only with `async` feature).
     #[cfg(feature = "async")]
     fn receive_by_correlation_async(
         &self,
         corr_id: &str,
     ) -> impl std::future::Future<Output = Option<Exchange>> + Send;
-    /// Block until matching Exchange arrives or timeout elapses.
     fn await_correlation(&self, corr_id: &str, timeout: Option<Duration>) -> Option<Exchange>;
 }
 
-/// In-memory Channel implementation supporting routing, outbound queueing and simple
-/// correlation for request-reply style flows.
-///
-/// # Correlation Header
-/// Generates `corr_id` and mirrors it into `correlation_id` for convergence toward a unified header.
-/// Existing code relying on `corr_id` remains compatible.
+/// Optional introspection for channels (implementation kind).
+pub trait ChannelInfo {
+    /// Returns a stable lowercase identifier for the channel implementation kind.
+    fn kind(&self) -> &'static str;
+}
+
+/// In-memory pipe implementation.
 #[derive(Clone, Debug)]
 pub struct InMemoryChannel {
     id: String,
-    route: Arc<Route>,
     #[cfg(not(feature = "async"))]
     out_queue: Arc<Mutex<VecDeque<Exchange>>>,
     #[cfg(feature = "async")]
@@ -145,11 +110,9 @@ pub struct InMemoryChannel {
 }
 
 impl InMemoryChannel {
-    /// Construct a new in-memory channel wrapping the provided `Route`.
-    pub(crate) fn new(route: Route) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             id: format!("channel:{}", uuid::Uuid::new_v4()),
-            route: Arc::new(route),
             #[cfg(not(feature = "async"))]
             out_queue: Arc::new(Mutex::new(VecDeque::new())),
             #[cfg(feature = "async")]
@@ -157,11 +120,9 @@ impl InMemoryChannel {
             corr_seq: Arc::new(AtomicU64::new(1)),
         }
     }
-    /// Construct a new in-memory channel with a custom id wrapping the provided `Route`.
-    pub(crate) fn with_id<S: Into<String>>(id: S, route: Route) -> Self {
+    pub(crate) fn with_id<S: Into<String>>(id: S) -> Self {
         Self {
             id: id.into(),
-            route: Arc::new(route),
             #[cfg(not(feature = "async"))]
             out_queue: Arc::new(Mutex::new(VecDeque::new())),
             #[cfg(feature = "async")]
@@ -169,19 +130,16 @@ impl InMemoryChannel {
             corr_seq: Arc::new(AtomicU64::new(1)),
         }
     }
-    /// Generate the next correlation id (internal monotonic sequence: `c1`, `c2`, ...).
     fn next_corr_id(&self) -> String {
         format!("c{}", self.corr_seq.fetch_add(1, Ordering::Relaxed))
     }
-    /// Ensure the given `Exchange` has a correlation id. Returns the id.
-    /// Sets both `corr_id` and (if absent) `correlation_id` for forward compatibility.
     fn ensure_correlation(&self, ex: &mut Exchange) -> String {
-        let existing = ex.in_msg.header("corr_id").map(|s| s.to_string());
-        if let Some(id) = existing {
+        if let Some(id) = ex.in_msg.header("corr_id") {
+            let id_str = id.to_string();
             if ex.in_msg.header("correlation_id").is_none() {
-                ex.in_msg.set_header("correlation_id", &id);
+                ex.in_msg.set_header("correlation_id", &id_str);
             }
-            id
+            id_str
         } else {
             let id = self.next_corr_id();
             ex.in_msg.set_header("corr_id", &id);
@@ -195,8 +153,7 @@ impl InMemoryChannel {
     fn push_out(&self, _ex: Exchange) {
         #[cfg(not(feature = "async"))]
         {
-            let mut g = self.out_queue.lock().unwrap();
-            g.push_back(_ex);
+            self.out_queue.lock().unwrap().push_back(_ex);
         }
         #[cfg(feature = "async")]
         {
@@ -216,16 +173,14 @@ impl Channel for InMemoryChannel {
         &self.id
     }
     #[cfg(not(feature = "async"))]
-    fn dispatch(&self, mut exchange: Exchange) -> Result<Exchange> {
-        self.route.run(&mut exchange)?;
-        self.push_out(exchange.clone());
-        Ok(exchange)
+    fn send(&self, exchange: Exchange) -> Result<()> {
+        self.push_out(exchange);
+        Ok(())
     }
     #[cfg(feature = "async")]
-    async fn dispatch_async(&self, mut exchange: Exchange) -> Result<Exchange> {
-        self.route.run(&mut exchange).await?;
-        self.push_out_async(exchange.clone()).await;
-        Ok(exchange)
+    async fn send_async(&self, exchange: Exchange) -> Result<()> {
+        self.push_out_async(exchange).await;
+        Ok(())
     }
 }
 
@@ -237,7 +192,7 @@ impl OutboundQueue for InMemoryChannel {
         }
         #[cfg(feature = "async")]
         {
-            panic!("try_receive should not be called in async mode; use try_receive_async instead");
+            panic!("try_receive should not be called in async mode; use try_receive_async")
         }
     }
     #[cfg(feature = "async")]
@@ -269,7 +224,7 @@ impl OutboundQueue for InMemoryChannel {
 impl CorrelationSupport for InMemoryChannel {
     fn send_with_correlation(&self, mut exchange: Exchange) -> Result<String> {
         let id = self.ensure_correlation(&mut exchange);
-        let _ = self.dispatch(exchange)?; // processed added to out_queue
+        self.send(exchange)?;
         Ok(id)
     }
 
@@ -279,7 +234,7 @@ impl CorrelationSupport for InMemoryChannel {
             let mut g = self.out_queue.lock().unwrap();
             if let Some(pos) = g
                 .iter()
-                .position(|e| e.in_msg.header("corr_id") == Some(_corr_id))
+                .position(|e| e.in_msg.header("corr_id") == Some(corr_id))
             {
                 return g.remove(pos);
             }
@@ -287,7 +242,7 @@ impl CorrelationSupport for InMemoryChannel {
         }
         #[cfg(feature = "async")]
         {
-            panic!("receive_by_correlation should not be called in async mode; use receive_by_correlation_async instead");
+            panic!("receive_by_correlation should not be called in async mode; use receive_by_correlation_async")
         }
     }
     #[cfg(feature = "async")]
@@ -319,61 +274,61 @@ impl CorrelationSupport for InMemoryChannel {
     }
 }
 
-/// Staged channel builder root providing pattern-based entry points.
-/// Usage: `ChannelBuilder::point_to_point().in_memory().route(route).id("my-chan").build()`
+impl ChannelInfo for InMemoryChannel {
+    fn kind(&self) -> &'static str {
+        "in_memory"
+    }
+}
+
+/// Staged builder root (pattern-only for now). Channels are pure pipes; builder selects kind & optional id.
 pub struct ChannelBuilder;
 impl ChannelBuilder {
-    /// Point-to-point pattern (single logical consumer path applying a Route).
+    /// Begin building a point-to-point channel (currently only in-memory implementation).
     pub fn point_to_point() -> PointToPointStage {
         PointToPointStage
     }
 }
-/// Stage representing a point-to-point channel pattern; next select a concrete kind.
 pub struct PointToPointStage;
 impl PointToPointStage {
-    /// Select the in-memory channel kind.
     pub fn in_memory(self) -> InMemoryChannelBuilder {
-        InMemoryChannelBuilder {
-            id: None,
-            route: None,
-        }
+        InMemoryChannelBuilder { id: None }
     }
 }
-/// Builder for `InMemoryChannel` produced via staged pattern.
 pub struct InMemoryChannelBuilder {
     id: Option<String>,
-    route: Option<Route>,
 }
 impl InMemoryChannelBuilder {
-    /// Assign explicit channel id.
+    /// Assign a stable identifier (skips auto-generated `channel:<uuid>`).
     pub fn id(mut self, id: impl Into<String>) -> Self {
         self.id = Some(id.into());
         self
     }
-    /// Provide the Route to be applied by the channel.
-    pub fn route(mut self, route: Route) -> Self {
-        self.route = Some(route);
+    /// Backward compatibility: accept a Route during transition to pure pipe channels; ignored.
+    pub fn route(self, _route: Route) -> Self {
         self
     }
     /// Build the channel, generating an id if not provided.
     pub fn build(self) -> InMemoryChannel {
-        let route = self.route.expect("route must be set before build()");
         match self.id {
-            Some(id) => InMemoryChannel::with_id(id, route),
-            None => InMemoryChannel::new(route),
+            Some(id) => InMemoryChannel::with_id(id),
+            None => InMemoryChannel::new(),
         }
     }
 }
 /// Example (staged builder)
 /// ```
-/// use allora::{channel::ChannelBuilder, route::Route, processor::ClosureProcessor, Message, Exchange, Channel};
-/// let route = Route::new().add(ClosureProcessor::new(|ex| { ex.out_msg = Some(Message::from_text("ok")); Ok(()) })).build();
-/// let channel = ChannelBuilder::point_to_point().in_memory().route(route).id("chan-1").build();
-/// let ex = Exchange::new(Message::from_text("ping"));
-/// let processed = channel.dispatch(ex).unwrap();
-/// assert_eq!(processed.out_msg.unwrap().body_text(), Some("ok"));
+/// use allora::channel::{ChannelBuilder, Channel, OutboundQueue};
+/// use allora::{Message, Exchange};
+/// let ch = ChannelBuilder::point_to_point().in_memory().id("pipe").build();
+/// ch.send(Exchange::new(Message::from_text("data"))).unwrap();
+/// #[cfg(not(feature="async"))]
+/// let ex = ch.try_receive().unwrap();
+/// #[cfg(feature="async")]
+/// let ex = tokio::runtime::Runtime::new().unwrap().block_on(async { ch.try_receive_async().await.unwrap() });
+/// assert_eq!(ex.in_msg.body_text(), Some("data"));
 /// ```
 #[allow(dead_code)]
 const _STAGED_BUILDER_EXAMPLE: () = ();
-pub type ChannelRef = std::sync::Arc<dyn Channel>;
+
+pub type ChannelRef = Arc<dyn Channel>;
 pub type DefaultChannel = InMemoryChannel;

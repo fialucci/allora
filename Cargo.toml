@@ -7,7 +7,7 @@ description = "Allora: A Rust-native library implementing Enterprise Integration
 license = "Apache-2.0"
 repository = "https://example.com/allora"
 readme = "README.md"
-keywords = ["integration", "eip", "messaging", "routing", "integration-framework"]
+keywords = ["integration", "eip", "messaging", "routing"]
 categories = ["network-programming", "asynchronous"]
 
 [lib]
@@ -15,9 +15,10 @@ name = "allora"
 path = "src/lib.rs"
 
 [features]
-default = ["async"]
+# Default features expanded so `cargo test` exercises async + http + serde paths.
+default = ["async", "http", "serde"]
 async = ["tokio", "async-trait"]
-serde = ["dep:serde"]
+serde = []
 http = ["hyper", "async"]
 
 [dependencies]
@@ -25,8 +26,9 @@ async-trait = { version = "0.1", optional = true }
 thiserror = "1.0"
 futures = "0.3"
 tracing = "0.1"
-serde = { version = "1.0", features = ["derive"], optional = true }
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_yaml = "0.9"
 hyper = { version = "0.14", features = ["full"], optional = true }
 uuid = { version = "1.8", features = ["v4"] }
 
@@ -41,3 +43,7 @@ serial_test = "3.2.0"
 
 [package.metadata.docs.rs]
 features = ["async", "serde", "http"]
+
+[alias]
+# Run full test suite including HTTP feature tests: cargo test-http
+test-http = "test --features http"

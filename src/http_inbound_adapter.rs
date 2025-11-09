@@ -1,6 +1,40 @@
 #![cfg(feature = "http")]
 //! HTTP Inbound Adapter: bridges incoming HTTP requests into Allora `Exchange`s.
 //! (see module docs above for overview; trimmed here for brevity)
+//!
+//! # Overview
+//! Translates inbound HTTP requests into `Exchange`s with a `Message` payload, then enqueues them
+//! on a configured channel. Optional endpoints (method/path registrations) can be attached for
+//! direct processing or routing augmentation.
+//!
+//! # Configuration (Builder)
+//! * `id` (optional) – stable identifier; auto-generated from socket if omitted.
+//! * `host` / `port` – listening address.
+//! * `base_path` – URL path prefix for registrations (e.g. `/api`).
+//! * `channel` – target ChannelRef (mandatory).
+//! * `mep` – message exchange pattern (request/reply vs fire-and-forget).
+//! * `register` / `register_any` – attach endpoints for specific method/path pairs.
+//!
+//! # Message Exchange Patterns
+//! * `InOut` – waits for downstream processing (legacy synchronous echo).
+//! * `InOnly202` – returns HTTP 202 immediately; processing continues asynchronously.
+//!
+//! # Example (Builder)
+//! ```rust
+//! use allora::{channel::{ChannelBuilder, Channel}, http_inbound_adapter::{HttpInboundAdapter, Mep}};
+//! use allora::adapter::Adapter;
+//! # #[cfg(feature="http")] {
+//! let channel = ChannelBuilder::point_to_point().in_memory().id("http-pipe").build();
+//! let adapter = Adapter::inbound()
+//!     .http()
+//!     .host("127.0.0.1")
+//!     .port(0)
+//!     .channel(std::sync::Arc::new(channel))
+//!     .in_only_202()
+//!     .build();
+//! assert_eq!(adapter.mep(), Mep::InOnly202);
+//! }
+//! ```
 
 use crate::adapter::{ensure_correlation, BaseAdapter, InboundAdapter};
 use crate::endpoint::EndpointSource;
@@ -17,7 +51,7 @@ use std::task::{Context, Poll};
 use tracing::{error, info};
 
 /// Message Exchange Pattern for HTTP inbound.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mep {
     /// Request/Reply: wait for the route to complete and return its response body (legacy behavior).
     InOut,
@@ -300,7 +334,6 @@ async fn adapt_request(
 
     match mep {
         Mep::InOut => {
-            // First attempt direct endpoint dispatch (path-based) before fallback to main channel.
             let key_exact = (method.as_str().to_ascii_uppercase(), path_norm.clone());
             let key_any = ("ANY".to_string(), path_norm.clone());
             let mut endpoints: Vec<Weak<InMemoryEndpoint>> = Vec::new();
@@ -313,7 +346,6 @@ async fn adapt_request(
                 }
             }
             if !endpoints.is_empty() {
-                // Dispatch to each endpoint's channel; use first endpoint's processed out_msg for HTTP response
                 let mut response_body: Option<String> = None;
                 let mut remove_indices: Vec<usize> = Vec::new();
                 for (idx, weak_ep) in endpoints.iter().enumerate() {
@@ -327,22 +359,15 @@ async fn adapt_request(
                             }
                             .apply_headers(&mut ex_clone);
                             #[cfg(feature = "async")]
-                            let processed = ch_ref.dispatch_async(ex_clone).await?;
+                            {
+                                ch_ref.send_async(ex_clone).await?;
+                            }
                             #[cfg(not(feature = "async"))]
-                            let processed = ch_ref.dispatch(ex_clone)?;
+                            {
+                                ch_ref.send(ex_clone)?;
+                            }
                             if response_body.is_none() {
-                                if let Some(out) = processed.out_msg {
-                                    if let Some(t) = out.body_text() {
-                                        response_body = Some(t.to_string());
-                                    } else {
-                                        response_body = Some(
-                                            String::from_utf8_lossy(
-                                                out.payload.as_bytes().unwrap_or(&[]),
-                                            )
-                                            .to_string(),
-                                        );
-                                    }
-                                }
+                                response_body = ex.in_msg.body_text().map(|s| s.to_string());
                             }
                         }
                     } else {
@@ -352,48 +377,20 @@ async fn adapt_request(
                 let body_final = response_body.unwrap_or_else(|| String::new());
                 return Ok(Response::new(Body::from(body_final)));
             }
-            // Fallback: legacy single channel dispatch
+            // Fallback: enqueue on primary channel only.
             #[cfg(feature = "async")]
-            let processed = channel.dispatch_async(ex).await?;
-            #[cfg(not(feature = "async"))]
-            let processed = channel.dispatch(ex)?;
-            // Fan out to endpoint channels if any route matches
-            let key = (method.as_str().to_ascii_uppercase(), path_norm.clone());
-            let mut remove_indices = Vec::new();
-            if let Ok(mut map) = routes.lock() {
-                if let Some(list) = map.get_mut(&key) {
-                    for (idx, w) in list.iter().enumerate() {
-                        if let Some(ep) = w.upgrade() {
-                            if let Some(ch_ref) = ep.channel() {
-                                let mut clone_ex = processed.clone();
-                                // ensure headers reflect endpoint source
-                                EndpointSource::Http {
-                                    adapter_id: adapter_id.clone(),
-                                    method: method.as_str().to_string(),
-                                    path: path_norm.clone(),
-                                }
-                                .apply_headers(&mut clone_ex);
-                                let _ = ch_ref.dispatch(clone_ex); // sync path assumption
-                            }
-                        } else {
-                            remove_indices.push(idx);
-                        }
-                    }
-                    for i in remove_indices.into_iter().rev() {
-                        list.remove(i);
-                    }
-                }
+            {
+                channel.send_async(ex.clone()).await?;
             }
-            let response_body = if let Some(out) = processed.out_msg {
-                if let Some(t) = out.body_text() {
-                    t.to_string()
-                } else {
-                    String::from_utf8_lossy(out.payload.as_bytes().unwrap_or(&[])).to_string()
-                }
-            } else {
-                // fallback: original request body
-                String::from_utf8_lossy(&body_bytes).to_string()
-            };
+            #[cfg(not(feature = "async"))]
+            {
+                channel.send(ex.clone())?;
+            }
+            let response_body = ex
+                .in_msg
+                .body_text()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| String::from_utf8_lossy(&body_bytes).to_string());
             Ok(Response::new(Body::from(response_body)))
         }
         Mep::InOnly202 => {
@@ -401,17 +398,13 @@ async fn adapt_request(
             let ch = channel.clone();
             #[cfg(feature = "async")]
             tokio::spawn(async move {
-                if let Err(e) = ch.dispatch_async(ex).await {
-                    tracing::error!(error=%e, "in-only dispatch failed");
-                }
+                let _ = ch.send_async(ex).await;
             });
             #[cfg(not(feature = "async"))]
             {
                 // If no async feature, still try to dispatch synchronously in a thread.
                 let _ = std::thread::spawn(move || {
-                    if let Err(e) = ch.dispatch(ex) {
-                        tracing::error!(error=%e, "in-only dispatch failed");
-                    }
+                    let _ = ch.send(ex);
                 });
             }
             Ok(Response::builder()
