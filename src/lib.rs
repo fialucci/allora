@@ -1,117 +1,62 @@
 //! Allora: Rust-native Enterprise Integration Patterns library.
 //!
-//! This crate provides building blocks (Message, Exchange, Endpoint, Processor)
-//! and common EIP pattern implementations (Filter, Content-Based Router, Splitter, Aggregator, etc.)
-//! for constructing integration flows that are idiomatic to Rust.
-//!
-//! Tagline: Connect everything into one continuous, high-performance flow.
+//! Provides building blocks (Message, Exchange, Endpoint, Processor) and common EIP patterns
+//! (Filter, Content-Based Router, Splitter, Aggregator) for high-performance, idiomatic Rust flows.
 //!
 //! # Installation
-//! Add to your `Cargo.toml`:
 //! ```toml
 //! [dependencies]
-//! allora = { version = "0.1", features = ["async", "serde"] }
-//! # To enable HTTP adapters:
-//! # allora = { version = "0.1", features = ["async", "serde", "http"] }
+//! allora = { version = "0.1", features = ["async", "http"] }
 //! ```
 //!
-//! # Optional Features
-//! * `async` (default) – asynchronous channel operations & adapter runtimes.
-//! * `http` – HTTP inbound/outbound adapters.
-//! * `serde` – (de)serialization helpers for payloads.
+//! # Features
+//! * `async` (default) – async channel ops & adapter runtimes
+//! * `http` – HTTP inbound/outbound adapters
+//! * Serde always enabled
 //!
 //! # Quick Start
 //! ```rust
 //! use allora::{patterns::filter::Filter, Exchange, Message};
-//! let msg = Message::from_text("hello");
-//! let mut ex = Exchange::new(msg);
-//! let filter = Filter::new(|e: &Exchange| e.in_msg.body_text().map(|t| t == "hello").unwrap_or(false));
+//! let mut ex = Exchange::new(Message::from_text("hello"));
+//! let filter = Filter::new(|e: &Exchange| e.in_msg.body_text() == Some("hello"));
 //! assert!(filter.accepts(&ex));
 //! ```
 //!
-//! # Architecture Overview
-//! * Specs (`spec/`) define component intent (no IO).
-//! * Parsers (`spec/*_yaml.rs`) turn format documents into Specs.
-//! * DSL (`dsl/`) provides user-facing build APIs across formats.
-//! * Builders (`dsl/component_builders.rs`) instantiate runtime objects.
-//! * Runtime patterns (`patterns/`, `processor/`, `channel/`) implement EIP constructs.
+//! # Architecture
+//! Specs -> Parsers -> DSL -> Builders -> Runtime Patterns
+//! 1. Specs: intent (no IO)
+//! 2. Parsers: YAML -> Spec
+//! 3. DSL: unified build APIs
+//! 4. Builders: Spec -> runtime component
+//! 5. Patterns: processing primitives
 //!
-//! # Spec vs DSL
-//! * Spec: Programmatic, strongly typed (e.g. `ChannelSpec::in_memory().id("orders")`).
-//! * DSL: Textual configuration translation (YAML today). Calls parser -> spec -> builder.
-//! * Builders: Format-agnostic; consume specs only.
-//!
-//! # Channel YAML Schema (v1)
+//! # Channel YAML (v1)
 //! ```yaml
 //! version: 1
 //! channel:
-//!   kind: in_memory   # required
+//!   kind: in_memory
 //!   id: my-channel    # optional
 //! ```
 //!
-//! # EIP Mapping Examples
-//! * Filter -> `patterns::filter::Filter`
-//! * Content-Based Router -> `patterns::content_router::ContentRouter`
-//! * Splitter -> `patterns::splitter::Splitter`
-//! * Aggregator -> `patterns::aggregator::Aggregator`
+//! # Mapping
+//! * Filter => patterns::filter::Filter
+//! * Content Router => patterns::content_router::ContentRouter
+//! * Splitter => patterns::splitter::Splitter
+//! * Aggregator => patterns::aggregator::Aggregator
 //!
-//! # End-to-End (YAML DSL -> Channel)
+//! # DSL Example
 //! ```rust
 //! use allora::{build_channel_from_str, DslFormat, Channel};
-//! let raw = "version: 1\nchannel:\n  kind: in_memory\n  id: demo-e2e";
+//! let raw = "version: 1\nchannel:\n  kind: in_memory\n  id: demo";
 //! let ch = build_channel_from_str(raw, DslFormat::Yaml).unwrap();
-//! assert_eq!(ch.id(), "demo-e2e");
+//! assert_eq!(ch.id(), "demo");
 //! ```
 //!
 //! # Stability & Versioning
-//! * Spec versioning enforced in parsers (reject unsupported versions).
-//! * Additive changes favored; breaking changes introduce new versioned parsers.
+//! * Parsers enforce `version`.
+//! * New versions add new parser modules.
 //!
-//! # License
-//! MIT OR Apache-2.0 at your option.
-//!
-//! # Features
-//! * `async` (default): Enables asynchronous processing using Tokio and async-trait.
-//! * `serde`: Enables (de)serialization support for message payloads.
-//!
-//! # Quick Start
-//! ```rust
-//! use allora::{patterns::filter::Filter, Exchange, Message};
-//! let msg = Message::from_text("hello");
-//! let mut ex = Exchange::new(msg);
-//! let filter = Filter::new(|e: &Exchange| e.in_msg.body_text().map(|t| t == "hello").unwrap_or(false));
-//! assert!(filter.accepts(&ex));
-//! ```
-//!
-//! # Architecture Overview
-//! * Specs (`spec/`) define component intent (no IO).
-//! * Parsers (`spec/*_yaml.rs`) turn format documents into Specs.
-//! * DSL (`dsl/`) provides user-facing build APIs across formats.
-//! * Builders (`dsl/component_builders.rs`) instantiate runtime objects.
-//! * Runtime patterns (`patterns/`, `processor/`, `channel/`) implement EIP constructs.
-//!
-//! # EIP Mapping Examples
-//! * Filter -> `patterns::filter::Filter`
-//! * Content-Based Router -> `patterns::content_router::ContentRouter`
-//! * Splitter -> `patterns::splitter::Splitter`
-//! * Aggregator -> `patterns::aggregator::Aggregator`
-//!
-//! # End-to-End (YAML DSL -> Channel)
-//! ```rust
-//! use allora::{build_channel_from_str, DslFormat, Channel};
-//! let raw = "version: 1\nchannel:\n  kind: in_memory\n  id: demo-e2e";
-//! let ch = build_channel_from_str(raw, DslFormat::Yaml).unwrap();
-//! assert_eq!(ch.id(), "demo-e2e");
-//! ```
-//!
-//! # Feature Flags
-//! * `async` – async channel operations & adapter runtimes.
-//! * `http` – HTTP inbound/outbound adapters.
-//! * `serde` – (de)serialization helpers for payloads.
-//!
-//! # Stability & Versioning
-//! * Spec versioning enforced in parsers (reject unsupported versions).
-//! * Additive changes favored; breaking changes require new version-specific parser modules.
+//! # License: MIT OR Apache-2.0
 
 pub mod adapter; // generic inbound adapter abstractions (file adapter.rs)
 pub mod channel;
@@ -139,7 +84,7 @@ pub use dsl::{build_channel, build_channel_from_str, DslFormat};
 pub use endpoint::{Endpoint, InMemoryEndpoint};
 pub use error::{Error, Result};
 #[cfg(feature = "http")]
-pub use http_inbound_adapter::HttpInboundAdapter;
+pub use http_inbound_adapter::{HttpInboundAdapter, Mep};
 #[cfg(feature = "http")]
 pub use http_outbound_adapter::HttpOutboundAdapter;
 pub use message::{Exchange, Message, Payload};

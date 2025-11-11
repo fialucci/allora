@@ -10,7 +10,6 @@ fn payload_variants_and_accessors() {
     assert_eq!(bytes.as_bytes(), Some(&[1, 2, 3][..]));
     assert_eq!(bytes.as_text(), None);
 
-    #[cfg(feature = "serde")]
     {
         let json = Payload::Json(serde_json::json!({"a": 1}));
         match json {
@@ -68,7 +67,6 @@ fn message_and_exchange_defaults() {
     assert!(exch.properties.is_empty());
 }
 
-#[cfg(feature = "serde")]
 #[test]
 fn serde_roundtrip_message_and_exchange() {
     let mut msg = Message::from_text("serde");

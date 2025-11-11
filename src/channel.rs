@@ -228,13 +228,13 @@ impl CorrelationSupport for InMemoryChannel {
         Ok(id)
     }
 
-    fn receive_by_correlation(&self, corr_id: &str) -> Option<Exchange> {
+    fn receive_by_correlation(&self, _corr_id: &str) -> Option<Exchange> {
         #[cfg(not(feature = "async"))]
         {
             let mut g = self.out_queue.lock().unwrap();
             if let Some(pos) = g
                 .iter()
-                .position(|e| e.in_msg.header("corr_id") == Some(corr_id))
+                .position(|e| e.in_msg.header("corr_id") == Some(_corr_id))
             {
                 return g.remove(pos);
             }

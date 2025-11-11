@@ -40,11 +40,6 @@ use super::{ChannelKindSpec, ChannelSpec};
 use crate::error::{Error, Result};
 use serde_yaml::Value as YamlValue;
 
-/// Required and optional field paths for schema v1 (format-agnostic intent documentation).
-const REQUIRED_FIELDS: &[&str] = &["version", "channel", "channel.kind"];
-/// List of optional fields for schema v1. This is for documentation purposes and may be used for future validation enhancements.
-const OPTIONAL_FIELDS: &[&str] = &["channel.id"];
-
 /// Parses YAML into a ChannelSpec (v1 schema).
 pub struct ChannelSpecYamlParser;
 

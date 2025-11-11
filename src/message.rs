@@ -51,13 +51,11 @@
 //! [`CorrelationInitializer`]: crate::patterns::correlation_initializer::CorrelationInitializer
 //! [`Route::with_correlation`]: crate::route::Route::with_correlation
 
-#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Represents the payload of a message, supporting text, bytes, JSON, or empty.
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Payload {
     /// UTF-8 text payload.
     Text(String),
@@ -107,8 +105,7 @@ impl Payload {
 /// # Header Semantics
 /// All headers are simple UTF-8 strings. Keep values small; store large / complex structures
 /// in the payload or properties instead.
-#[derive(Debug, Clone, Default)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Message {
     /// The message payload.
     pub payload: Payload,
@@ -177,8 +174,7 @@ impl Message {
 ///
 /// # Correlation Helper
 /// `Exchange::correlation_id` provides a convenience wrapper around `in_msg.ensure_correlation_id()`.
-#[derive(Debug, Clone, Default)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Exchange {
     /// The inbound message.
     pub in_msg: Message,
@@ -215,5 +211,4 @@ impl Exchange {
 
 /// Alias for Payload type.
 pub use Payload as RawPayload;
-
 
