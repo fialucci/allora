@@ -228,7 +228,7 @@ impl CorrelationSupport for InMemoryChannel {
         Ok(id)
     }
 
-    fn receive_by_correlation(&self, _corr_id: &str) -> Option<Exchange> {
+    fn receive_by_correlation(&self, corr_id: &str) -> Option<Exchange> {
         #[cfg(not(feature = "async"))]
         {
             let mut g = self.out_queue.lock().unwrap();

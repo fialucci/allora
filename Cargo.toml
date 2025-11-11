@@ -15,10 +15,9 @@ name = "allora"
 path = "src/lib.rs"
 
 [features]
-# Default features expanded so `cargo test` exercises async + http + serde paths.
-default = ["async", "http", "serde"]
+# Default features expanded so `cargo test` exercises async + http paths.
+default = ["async", "http"]
 async = ["tokio", "async-trait"]
-serde = []
 http = ["hyper", "async"]
 
 [dependencies]
@@ -27,8 +26,8 @@ thiserror = "1.0"
 futures = "0.3"
 tracing = "0.1"
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-serde_yaml = "0.9"
+serde_json = { version = "1.0" }
+serde_yaml = { version = "0.9" }
 hyper = { version = "0.14", features = ["full"], optional = true }
 uuid = { version = "1.8", features = ["v4"] }
 
@@ -37,13 +36,7 @@ version = "1.39"
 features = ["rt", "rt-multi-thread", "macros", "sync"]
 optional = true
 
-[dev-dependencies]
-rand = "0.8"
-serial_test = "3.2.0"
-
-[package.metadata.docs.rs]
-features = ["async", "serde", "http"]
-
-[alias]
+# Remove invalid [alias]; use cargo metadata for docs only.
+[package.metadata.cargo-alias]
 # Run full test suite including HTTP feature tests: cargo test-http
 test-http = "test --features http"
