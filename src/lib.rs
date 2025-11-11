@@ -57,6 +57,48 @@
 //! * New versions add new parser modules.
 //!
 //! # License: MIT OR Apache-2.0
+//!
+//! # Full Runtime Build (AlloraRuntime)
+//! If you have a top-level `allora.yml` describing multiple channels:
+//! ```yaml
+//! version: 1
+//! channels:
+//!   - kind: in_memory
+//!     id: inbound.orders
+//!   - kind: in_memory
+//!     id: processed.orders
+//! ```
+//! Build all declared components (currently channels) with:
+//! ```rust
+//! use allora::{build, Channel};
+//! let rt = build("tests/fixtures/allora.yml").unwrap();
+//! assert!(rt.channel_by_id("inbound.orders").is_some());
+//! assert_eq!(rt.channel_count(), 3); // depending on your fixture
+//! ```
+//!
+//! # Programmatic vs YAML Specs
+//! You can construct specs directly:
+//! ```rust
+//! use allora::spec::ChannelSpec;
+//! let spec = ChannelSpec::in_memory().id("direct");
+//! // Then feed into builder: allora::dsl::component_builders::build_channel_from_spec(spec)
+//! ```
+//! or rely on YAML parsing via `build_channel_from_str` / `build()`.
+//!
+//! # ID Strategy
+//! * Single channel without id -> UUID (via builder)
+//! * Multi-channel (top-level build) missing ids -> deterministic `channel:auto.N`
+//! * Duplicate ids -> build-time error (`duplicate channel.id`)
+//!
+//! # Roadmap (Indicative)
+//! * Additional channel kinds (kafka, amqp)
+//! * Endpoint / Adapter specs
+//! * Filter & Router DSL (expression + structured forms)
+//! * JSON / XML format parsers
+//! * Pluggable id generation strategy
+//!
+//! # Contributing
+//! Keep additions layered: Spec -> Parser -> Builder -> Facade -> Pattern. Avoid embedding parsing logic in builders.
 
 pub mod adapter; // generic inbound adapter abstractions (file adapter.rs)
 pub mod channel;
@@ -80,7 +122,8 @@ pub use adapter::{
 pub use channel::{
     Channel, ChannelRef, CorrelationSupport, DefaultChannel, InMemoryChannel, OutboundQueue,
 };
-pub use dsl::{build_channel, build_channel_from_str, DslFormat};
+pub use dsl::runtime::AlloraRuntime;
+pub use dsl::{build, build_channel, build_channel_from_str, DslFormat};
 pub use endpoint::{Endpoint, InMemoryEndpoint};
 pub use error::{Error, Result};
 #[cfg(feature = "http")]

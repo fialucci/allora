@@ -1,0 +1,10 @@
+# Top-level Allora configuration fixture (v1)
+version: 1
+channels:
+  - kind: in_memory
+    id: inbound.orders
+  - kind: in_memory
+    id: processed.orders
+  - kind: in_memory
+    id: error.deadletter
+

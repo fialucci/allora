@@ -1,0 +1,34 @@
+# Allora Root Configuration Schema (documentation-only, v1)
+# Single top-level object containing ONLY 'version' and a 'channels' array.
+# The channels array shape is reused from channels.schema.yml to keep a single source of truth.
+
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "local://schemas/v1/allora.schema.yaml"
+
+title: "Allora Root Configuration Schema (v1)"
+description: "Top-level Allora configuration; only one channels component allowed."
+type: object
+required: [ version, channels ]
+additionalProperties: false
+
+properties:
+  version:
+    type: integer
+    const: 1
+    default: 1
+    description: "Schema version; must be 1."
+  channels:
+    # Reuse the array definition from channels.schema.yml (its channels property)
+    $ref: "local://schemas/v1/channels.schema.yaml#/properties/channels"
+    description: "Collection of channel definitions."
+
+examples:
+  - version: 1
+    channels:
+      - kind: in_memory
+        id: inbound.orders
+      - kind: in_memory
+        id: processed.orders
+      - kind: in_memory
+        id: error.deadletter
+
