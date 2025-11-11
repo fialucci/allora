@@ -24,6 +24,13 @@ properties:
     required: [ from, when ]
     additionalProperties: false
     properties:
+      id:
+        type: string
+        minLength: 1
+        description: |
+          Optional explicit filter identifier. Must be a non-empty string if provided.
+          Uniqueness is enforced during build (duplicate ids cause an error). When omitted in a
+          multi-filter build the runtime assigns a deterministic auto id of the form `filter:auto.N`.
       from:
         type: string
         minLength: 1
@@ -47,6 +54,7 @@ properties:
 examples:
   - version: 1
     filter:
+      id: filt.orders
       from: inbound.orders
       to: vetted.orders
       when: body.contains("KEEP") && exists(header("Trace-Id"))
@@ -54,4 +62,3 @@ examples:
     filter:
       from: inbound.audit
       when: exists(header("Audit-Flag")) && header("Audit-Flag") == "true"
-
