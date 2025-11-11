@@ -22,7 +22,7 @@ properties:
 
     description: "List of channel definitions (kind required; id optional)."
     items:
-      $ref: "local://schemas/v1/channel-config.schema.yaml#/properties/channel"
+      $ref: "local://schemas/v1/channel.schema.yml#/properties/channel"
 
 examples:
   - version: 1
