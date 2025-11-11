@@ -22,7 +22,7 @@
 //!
 //! # Non-Goals
 //! * Expression syntax validation beyond non-empty string (left to runtime evaluation logic).
-//! * Referenced channel existence (handled by orchestration layer when routing is wired).
+//! * Referenced channel existence (handled by orchestration layer during routing configuration).
 
 use crate::error::{Error, Result};
 use crate::spec::version::validate_version;

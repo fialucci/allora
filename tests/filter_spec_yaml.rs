@@ -13,7 +13,7 @@ filter:
     assert_eq!(spec.to(), Some("vetted.orders"));
     assert_eq!(
         spec.when(),
-        "body.contains(\"KEEP\") && exists(header(\"Trace-Id\"))".replace("\\\"", "\"")
+        "body.contains(\"KEEP\") && exists(header(\"Trace-Id\"))"
     );
 }
 
