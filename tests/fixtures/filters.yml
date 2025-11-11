@@ -1,0 +1,9 @@
+version: 1
+filters:
+  - id: filt.orders
+    from: inbound.orders
+    to: vetted.orders
+    when: body.contains("KEEP") && exists(header("Trace-Id"))
+  - id: filt.audit
+    from: inbound.audit
+    when: exists(header("Audit-Flag")) && header("Audit-Flag") == "true"

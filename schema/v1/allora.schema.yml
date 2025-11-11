@@ -21,6 +21,10 @@ properties:
     # Reuse the array definition from channels.schema.yml (its channels property)
     $ref: "local://schemas/v1/channels.schema.yaml#/properties/channels"
     description: "Collection of channel definitions."
+  filters:
+    # Optional collection of filters reusing filters.schema.yml
+    $ref: "local://schemas/v1/filters.schema.yml#/properties/filters"
+    description: "Optional collection of filter definitions (message filter expressions)."
 
 examples:
   - version: 1
@@ -31,4 +35,8 @@ examples:
         id: processed.orders
       - kind: in_memory
         id: error.deadletter
-
+    filters:
+      - id: filt.orders
+        from: inbound.orders
+        to: processed.orders
+        when: body.contains("KEEP") && exists(header("Trace-Id"))

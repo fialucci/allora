@@ -23,7 +23,8 @@
 use super::version::validate_version;
 use crate::error::{Error, Result};
 use crate::spec::{
-    allora_spec::AlloraSpec, channels_spec_yaml::ChannelsSpecYamlParser, ChannelsSpec,
+    allora_spec::AlloraSpec, channels_spec_yaml::ChannelsSpecYamlParser,
+    filters_spec_yaml::FiltersSpecYamlParser, ChannelsSpec, FiltersSpec,
 };
 use serde_yaml::Value as YamlValue;
 
@@ -38,6 +39,8 @@ impl AlloraSpecYamlParser {
         if !channels_root.is_sequence() {
             return Err(Error::serialization("'channels' must be a sequence"));
         }
+        // optional filters
+        let filters_root = yaml.get("filters");
         // Synthesize mapping for channel parser reuse
         let mut obj = serde_yaml::Mapping::new();
         obj.insert(
@@ -50,7 +53,23 @@ impl AlloraSpecYamlParser {
         );
         let synthesized = serde_yaml::Value::Mapping(obj);
         let channels_spec: ChannelsSpec = ChannelsSpecYamlParser::parse_value(&synthesized)?;
-        Ok(AlloraSpec::new(v, channels_spec))
+        let mut all = AlloraSpec::new(v, channels_spec);
+        if let Some(fr) = filters_root {
+            if !fr.is_sequence() {
+                return Err(Error::serialization("'filters' must be a sequence"));
+            }
+            // Build mapping for filters parser reuse
+            let mut fobj = serde_yaml::Mapping::new();
+            fobj.insert(
+                serde_yaml::Value::String("version".into()),
+                serde_yaml::Value::Number(serde_yaml::Number::from(v)),
+            );
+            fobj.insert(serde_yaml::Value::String("filters".into()), fr.clone());
+            let fsynth = serde_yaml::Value::Mapping(fobj);
+            let filters_spec: FiltersSpec = FiltersSpecYamlParser::parse_value(&fsynth)?;
+            all = all.with_filters(filters_spec);
+        }
+        Ok(all)
     }
     pub fn parse_str(raw: &str) -> Result<AlloraSpec> {
         let val: YamlValue = serde_yaml::from_str(raw)

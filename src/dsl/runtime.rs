@@ -48,6 +48,7 @@
 use crate::channel::Channel;
 // bring trait for id()
 use crate::channel::InMemoryChannel;
+use crate::patterns::filter::Filter;
 
 #[derive(Debug)]
 /// Aggregated runtime container for all built components (channels today, more later).
@@ -57,8 +58,7 @@ use crate::channel::InMemoryChannel;
 /// channels into another structure or performing manual lifecycle management).
 pub struct AlloraRuntime {
     channels: Vec<InMemoryChannel>,
-    // future: endpoints: Vec<Endpoint>,
-    // future: filters: Vec<Filter>,
+    filters: Vec<Filter>,
 }
 
 impl AlloraRuntime {
@@ -66,15 +66,33 @@ impl AlloraRuntime {
     ///
     /// Typically invoked internally by the DSL (`build_runtime_from_str`).
     pub fn new(channels: Vec<InMemoryChannel>) -> Self {
-        Self { channels }
+        Self {
+            channels,
+            filters: Vec::new(),
+        }
+    }
+    /// Add filters to the runtime.
+    ///
+    /// Consumes the provided filters vector, replacing any existing filters.
+    pub fn with_filters(mut self, filters: Vec<Filter>) -> Self {
+        self.filters = filters;
+        self
     }
     /// Borrow all channels (read-only slice).
     pub fn channels(&self) -> &[InMemoryChannel] {
         &self.channels
     }
+    /// Borrow all filters (read-only slice).
+    pub fn filters(&self) -> &[Filter] {
+        &self.filters
+    }
     /// Consume the runtime, yielding owned channels.
     pub fn into_channels(self) -> Vec<InMemoryChannel> {
         self.channels
+    }
+    /// Consume the runtime, yielding owned filters.
+    pub fn into_filters(self) -> Vec<Filter> {
+        self.filters
     }
     /// Find a channel by its id; returns `None` if not present.
     ///
@@ -86,5 +104,9 @@ impl AlloraRuntime {
     /// Total number of channels in this runtime.
     pub fn channel_count(&self) -> usize {
         self.channels.len()
+    }
+    /// Total number of filters in this runtime.
+    pub fn filter_count(&self) -> usize {
+        self.filters.len()
     }
 }

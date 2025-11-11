@@ -1,54 +1,91 @@
-//! Filter pattern: conditionally allow an `Exchange` to continue through a Route based on a predicate.
+//! Filter: evaluates a boolean predicate over an `Exchange` to decide if routing continues.
 //!
-//! Implements the Enterprise Integration Pattern (EIP) "Message Filter". A filter evaluates
-//! a boolean predicate against the current `Exchange`; if it returns `true` processing continues,
-//! otherwise the route is short‑circuited with a `Routing` error.
+//! Implements the Enterprise Integration Pattern (EIP) "Message Filter".
+//! If the predicate returns `true` the downstream processors execute; if `false`,
+//! processing stops with `Error::Routing` (no mutation performed).
 //!
-//! # Why Use a Filter
-//! * Declarative separation of routing conditions from processing logic.
-//! * Early rejection of messages not relevant to a downstream flow (performance & clarity).
-//! * Composable with other patterns (place after a correlation initializer, before a splitter, etc.).
+//! # When to Use
+//! * Reject early to save downstream work.
+//! * Isolate routing criteria from business logic.
+//! * Combine with other patterns (correlation initializer, splitter, router).
 //!
-//! # Behavior
-//! * Predicate receives an immutable reference to the `Exchange`.
-//! * On `true`, `process_sync` returns `Ok(())` and the route proceeds.
-//! * On `false`, returns `Err(Error::Routing(..))` with a customizable message.
-//! * No mutation is performed by the filter itself.
+//! # Behavior Summary
+//! * Predicate receives `&Exchange` (immutable view of inbound & optional outbound).
+//! * Success: `Ok(())`; Failure: `Err(Error::Routing(..))`.
+//! * Filter never mutates headers, body, or outbound message.
+//! * Works in sync and async builds (same struct, auto adaptation under `async` feature).
 //!
-//! # Async Feature
-//! When the `async` feature is enabled, `Filter` still implements `SyncProcessor`; it is
-//! automatically adapted to the async `Processor` trait (no internal `await` needed).
+//! # Construction APIs
+//! * `Filter::new(|ex| ...)` – custom closure predicate.
+//! * `Filter::with_error(|ex| ..., "reason")` – custom failure message.
+//! * `Filter::from_apl("expression")` – parse Allora Predicate Language (APL) v1 string.
+//!
+//! # APL v1 Reference
+//! Supported atoms:
+//! * `header("Key") == "Value"` – exact header match (case sensitive key/value).
+//! * `exists(header("Key"))` – header presence.
+//! * `body.contains("Text")` – substring search in inbound body (text payload only).
+//! * Fallback literal – any other token is treated as an exact body match.
+//!
+//! Operators & precedence:
+//! * `&&` higher than `||`.
+//! * Expression is segmented by `||`; each segment reduces left‑associative `&&` atoms; final result is OR of segment values.
+//!
+//! Unsupported (yet): parentheses, negation `!`, inequality `!=`, numeric comparisons, regex, JSON path navigation.
+//!
+//! Error conditions (APL):
+//! * Empty expression → `Error::Serialization("empty predicate")`
+//! * Leading/trailing or consecutive logical operators → `Error::Serialization("logical operator parse error")`
+//! * Unrecognized atom pattern → treated as literal body equality (future versions may tighten and error instead).
 //!
 //! # Examples
-//! Basic usage (works in sync or async mode):
+//! Basic closure:
 //! ```
-//! use allora::{patterns::filter::Filter, route::Route, Message, Exchange};
+//! use allora::{patterns::filter::Filter, route::Route, Exchange, Message};
 //! let route = Route::new().add(Filter::new(|ex| ex.in_msg.body_text() == Some("KEEP"))).build();
 //! let mut ex = Exchange::new(Message::from_text("KEEP"));
-//! #[cfg(feature="async")] tokio::runtime::Runtime::new().unwrap().block_on(async { route.run(&mut ex).await.unwrap(); });
-//! #[cfg(not(feature="async"))] route.run(&mut ex).unwrap();
+//! #[cfg(feature="async")]
+//! tokio::runtime::Runtime::new().unwrap().block_on(async { route.run(&mut ex).await.unwrap(); });
+//! #[cfg(not(feature="async"))]
+//! route.run(&mut ex).unwrap();
 //! ```
 //!
-//! Custom error message when predicate fails:
+//! APL expression:
 //! ```
-//! use allora::{patterns::filter::Filter, route::Route, Error, Exchange, Message};
-//! let route = Route::new().add(Filter::with_error(|ex| ex.in_msg.body_text()==Some("X"), "not X" )).build();
-//! let mut ex = Exchange::new(Message::from_text("Y"));
+//! use allora::{patterns::filter::Filter, Exchange, Message};
+//! let f = Filter::from_apl("header(\"x-bot\") == \"hello\" && body.contains(\"URGENT\")").unwrap();
+//! let mut ex = Exchange::new(Message::from_text("URGENT issue"));
+//! ex.in_msg.set_header("x-bot", "hello");
+//! assert!(f.accepts(&ex));
+//! ```
+//!
+//! Custom error message:
+//! ```
+//! use allora::{patterns::filter::Filter, route::Route, Exchange, Message, Error};
+//! let route = Route::new().add(Filter::with_error(|ex| ex.in_msg.body_text()==Some("OK"), "rejected")).build();
+//! let mut ex = Exchange::new(Message::from_text("BAD"));
 //! #[cfg(feature="async")]
-//! let res = tokio::runtime::Runtime::new().unwrap().block_on(route.run(&mut ex));
+//! let res = tokio::runtime::Runtime::new().unwrap().block_on(async { route.run(&mut ex).await });
 //! #[cfg(not(feature="async"))]
 //! let res = route.run(&mut ex);
-//! assert!(matches!(res, Err(Error::Routing(msg)) if msg=="not X"));
+//! assert!(matches!(res, Err(Error::Routing(msg)) if msg=="rejected"));
 //! ```
 //!
 //! # Testing Tips
-//! * Use different payloads / headers to assert accept vs reject behavior.
-//! * Chain filters to model compound logic (`Route::new().add(f1).add(f2)`).
-//! * Provide a distinctive error message to distinguish which filter rejected.
-//! * Inspect the `Exchange` state before and after the filter to ensure expected behavior.
-//! * Leverage async test features to simulate real-world usage.
+//! * Provide accept & reject cases for each atom type.
+//! * Exhaustive truth table for multi‑condition expressions.
+//! * Assert Exchange immutability (headers/body unchanged).
+//! * Test precedence: `A && B || C` vs `A || B && C`.
+//!
+//! # Roadmap
+//! Parentheses, negation, JSON body paths, numeric & regex matching, stricter atom validation.
+//! These will be versioned additions keeping backward compatibility for existing APL specs.
+//!
+//! See also: [`Filter`], [`Filter::from_apl`], [`Exchange`], [`Error::Routing`].
 
-use crate::{error::Result, processor::SyncProcessor, Exchange};
+use crate::error::{Error, Result};
+use crate::{processor::SyncProcessor, Exchange};
+use regex::Regex;
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 
 pub type Predicate = Box<dyn Fn(&Exchange) -> bool + Send + Sync + 'static>;
@@ -88,6 +125,125 @@ impl Filter {
     pub fn accepts(&self, exchange: &Exchange) -> bool {
         (self.predicate)(exchange)
     }
+    /// Build a filter from an APL (Allora Predicate Language) expression string (v1).
+    /// See module docs for supported atoms & operators; returns `Error::Serialization` on structural issues.
+    /// Unknown atom formats degrade to literal body equality.
+    pub fn from_apl(apl: &str) -> Result<Self> {
+        let tokens = tokenize_apl(apl);
+        if tokens.is_empty() {
+            return Err(Error::serialization("empty predicate"));
+        }
+        let is_op = |t: &str| t == "&&" || t == "||";
+        if is_op(&tokens[0]) || is_op(tokens.last().unwrap()) {
+            return Err(Error::serialization("logical operator parse error"));
+        }
+        for w in tokens.windows(2) {
+            if is_op(&w[0]) && is_op(&w[1]) {
+                return Err(Error::serialization("logical operator parse error"));
+            }
+        }
+        let mut atoms: Vec<Box<dyn Fn(&Exchange) -> bool + Send + Sync>> = Vec::new();
+        let mut ops: Vec<String> = Vec::new();
+        for t in &tokens {
+            if is_op(t) {
+                ops.push(t.clone());
+            } else {
+                atoms.push(build_atom(t));
+            }
+        }
+        // Build index mapping: atoms interleaved with ops. Implement precedence: evaluate groups separated by ||.
+        let predicate = move |ex: &Exchange| {
+            if atoms.is_empty() {
+                return false;
+            }
+            // Evaluate left-associative && groups.
+            let mut group_values: Vec<bool> = Vec::new();
+            let mut current_val = (atoms[0])(ex);
+            let mut atom_index = 1; // next atom index
+            for op in &ops {
+                let next_atom_val = (atoms[atom_index])(ex);
+                atom_index += 1;
+                match op.as_str() {
+                    "&&" => {
+                        current_val = current_val && next_atom_val;
+                    }
+                    "||" => {
+                        group_values.push(current_val);
+                        current_val = next_atom_val;
+                    }
+                    _ => {}
+                }
+            }
+            group_values.push(current_val);
+            // OR reduction
+            group_values.into_iter().any(|v| v)
+        };
+        Ok(Filter {
+            predicate: Box::new(predicate),
+            error_message: None,
+        })
+    }
+}
+
+/// Tokenize APL by splitting on logical operators while retaining them.
+fn tokenize_apl(apl: &str) -> Vec<String> {
+    let re = Regex::new(r"\s*(?:(&&)|(\|\|))\s*").unwrap();
+    let mut parts = Vec::new();
+    let mut last = 0;
+    for m in re.find_iter(apl) {
+        let slice = &apl[last..m.start()].trim();
+        if !slice.is_empty() {
+            parts.push(slice.to_string());
+        }
+        let op = &apl[m.start()..m.end()].trim();
+        parts.push(op.to_string());
+        last = m.end();
+    }
+    let tail = apl[last..].trim();
+    if !tail.is_empty() {
+        parts.push(tail.to_string());
+    }
+    parts
+}
+
+/// Build an atomic predicate closure from a raw token.
+fn build_atom(raw: &str) -> Box<dyn Fn(&Exchange) -> bool + Send + Sync> {
+    let s = raw.trim();
+    if let Some(cap) = Regex::new(r#"^header\("([^"]+)"\)\s*==\s*"([^"]+)"$"#)
+        .unwrap()
+        .captures(s)
+    {
+        let key = cap.get(1).unwrap().as_str().to_string();
+        let expected = cap.get(2).unwrap().as_str().to_string();
+        return Box::new(move |ex: &Exchange| {
+            ex.in_msg
+                .headers
+                .get(&key)
+                .map(|v| v == &expected)
+                .unwrap_or(false)
+        });
+    }
+    if let Some(cap) = Regex::new(r#"^exists\(header\("([^"]+)"\)\)$"#)
+        .unwrap()
+        .captures(s)
+    {
+        let key = cap.get(1).unwrap().as_str().to_string();
+        return Box::new(move |ex: &Exchange| ex.in_msg.headers.get(&key).is_some());
+    }
+    if let Some(cap) = Regex::new(r#"^body\.contains\("([^"]+)"\)$"#)
+        .unwrap()
+        .captures(s)
+    {
+        let needle = cap.get(1).unwrap().as_str().to_string();
+        return Box::new(move |ex: &Exchange| {
+            ex.in_msg
+                .body_text()
+                .map(|b| b.contains(&needle))
+                .unwrap_or(false)
+        });
+    }
+    let literal = s.to_string();
+    Box::new(move |ex: &Exchange| ex.in_msg.body_text() == Some(literal.as_str()))
 }
 
 impl SyncProcessor for Filter {

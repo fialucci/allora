@@ -30,6 +30,7 @@ serde_json = { version = "1.0" }
 serde_yaml = { version = "0.9" }
 hyper = { version = "0.14", features = ["full"], optional = true }
 uuid = { version = "1.8", features = ["v4"] }
+regex = "1"
 
 [dependencies.tokio]
 version = "1.39"

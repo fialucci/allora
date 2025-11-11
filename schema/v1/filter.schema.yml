@@ -1,0 +1,57 @@
+# Allora Filter DSL Schema (v1)
+# Defines a single message filter that gates messages from one channel
+# and optionally forwards accepted messages to an outbound channel.
+# Validation is descriptive only; parsers enforce structure.
+
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "local://schemas/v1/filter.schema.yml"
+
+title: "Allora Filter Specification v1"
+description: "Message Filter EIP: predicate over message headers/body with optional forwarding"
+type: object
+required: [ version, filter ]
+additionalProperties: false
+
+properties:
+  version:
+    type: integer
+    const: 1
+    description: "Schema version (must be 1)."
+
+  filter:
+    type: object
+    description: "Filter definition block"
+    required: [ from, when ]
+    additionalProperties: false
+    properties:
+      from:
+        type: string
+        minLength: 1
+        description: "Inbound channel id the filter consumes from."
+      to:
+        type: string
+        minLength: 1
+        description: "Optional outbound channel id for accepted messages."
+      when:
+        type: string
+        minLength: 1
+        description: |
+          Boolean expression over message context.
+          Supported functions (initial draft):
+            header("Key") -> String | None
+            exists(header("Key")) -> bool
+            body.contains("text") -> bool
+          Operators: &&, ||, !, ==, !=
+          Example: body.contains("KEEP") && exists(header("Trace-Id"))
+
+examples:
+  - version: 1
+    filter:
+      from: inbound.orders
+      to: vetted.orders
+      when: body.contains("KEEP") && exists(header("Trace-Id"))
+  - version: 1
+    filter:
+      from: inbound.audit
+      when: exists(header("Audit-Flag")) && header("Audit-Flag") == "true"
+

@@ -7,4 +7,8 @@ channels:
     id: processed.orders
   - kind: in_memory
     id: error.deadletter
-
+filters:
+  - id: filt.orders
+    from: inbound.orders
+    to: processed.orders
+    when: body.contains("KEEP") && exists(header("Trace-Id"))

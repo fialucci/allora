@@ -59,7 +59,7 @@
 //! # License: MIT OR Apache-2.0
 //!
 //! # Full Runtime Build (AlloraRuntime)
-//! If you have a top-level `allora.yml` describing multiple channels:
+//! If you have a top-level `allora.yml` describing multiple channels and optional filters:
 //! ```yaml
 //! version: 1
 //! channels:
@@ -67,13 +67,19 @@
 //!     id: inbound.orders
 //!   - kind: in_memory
 //!     id: processed.orders
+//! filters:
+//!   - id: filt.orders
+//!     from: inbound.orders
+//!     to: processed.orders
+//!     when: body.contains("KEEP") && exists(header("Trace-Id"))
 //! ```
-//! Build all declared components (currently channels) with:
+//! Build all declared components with:
 //! ```rust
-//! use allora::{build, Channel};
+//! use allora::{build, Channel, Filter};
 //! let rt = build("tests/fixtures/allora.yml").unwrap();
 //! assert!(rt.channel_by_id("inbound.orders").is_some());
-//! assert_eq!(rt.channel_count(), 3); // allora.yml defines 3 channels
+//! assert!(rt.filters().len() >= 1);
+//! assert_eq!(rt.channel_count(), 3);
 //! ```
 //!
 //! # Programmatic vs YAML Specs
@@ -89,13 +95,15 @@
 //! * Single channel without id -> UUID (via builder)
 //! * Multi-channel (top-level build) missing ids -> deterministic `channel:auto.N`
 //! * Duplicate ids -> build-time error (`duplicate channel.id`)
+//! * Filters mirror channel strategy with `filter:auto.N` for missing ids and duplicate rejection
 //!
 //! # Roadmap (Indicative)
 //! * Additional channel kinds (kafka, amqp)
 //! * Endpoint / Adapter specs
-//! * Filter & Router DSL (expression + structured forms)
+//! * Filter & Router DSL (expression + structured forms) – extended predicates & routing
 //! * JSON / XML format parsers
 //! * Pluggable id generation strategy
+//! * Runtime indexing optimization (hash lookups) for large deployments
 //!
 //! # Contributing
 //! Keep additions layered: Spec -> Parser -> Builder -> Facade -> Pattern. Avoid embedding parsing logic in builders.
@@ -123,7 +131,7 @@ pub use channel::{
     Channel, ChannelRef, CorrelationSupport, DefaultChannel, InMemoryChannel, OutboundQueue,
 };
 pub use dsl::runtime::AlloraRuntime;
-pub use dsl::{build, build_channel, build_channel_from_str, DslFormat};
+pub use dsl::{build, build_channel, build_channel_from_str, build_filter, DslFormat};
 pub use endpoint::{Endpoint, InMemoryEndpoint};
 pub use error::{Error, Result};
 #[cfg(feature = "http")]
@@ -131,5 +139,6 @@ pub use http_inbound_adapter::{HttpInboundAdapter, Mep};
 #[cfg(feature = "http")]
 pub use http_outbound_adapter::HttpOutboundAdapter;
 pub use message::{Exchange, Message, Payload};
+pub use patterns::filter::Filter;
 pub use processor::{BoxedProcessor, ClosureProcessor, Processor, SyncProcessor};
 pub use spec::{ChannelKindSpec, ChannelSpec};

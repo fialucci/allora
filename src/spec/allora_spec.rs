@@ -27,17 +27,26 @@
 //! ```
 //!
 
-use crate::spec::ChannelsSpec;
+use crate::spec::{ChannelsSpec, FiltersSpec};
 
 #[derive(Debug, Clone)]
 pub struct AlloraSpec {
     version: u32,
     channels: ChannelsSpec,
+    filters: Option<FiltersSpec>,
 }
 
 impl AlloraSpec {
     pub fn new(version: u32, channels: ChannelsSpec) -> Self {
-        Self { version, channels }
+        Self {
+            version,
+            channels,
+            filters: None,
+        }
+    }
+    pub fn with_filters(mut self, filters: FiltersSpec) -> Self {
+        self.filters = Some(filters);
+        self
     }
     pub fn version(&self) -> u32 {
         self.version
@@ -45,7 +54,13 @@ impl AlloraSpec {
     pub fn channels_spec(&self) -> &ChannelsSpec {
         &self.channels
     }
+    pub fn filters_spec(&self) -> Option<&FiltersSpec> {
+        self.filters.as_ref()
+    }
     pub fn into_channels_spec(self) -> ChannelsSpec {
         self.channels
+    }
+    pub fn into_filters_spec(self) -> Option<FiltersSpec> {
+        self.filters
     }
 }

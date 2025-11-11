@@ -63,6 +63,10 @@ pub mod channel_spec;
 pub mod channel_spec_yaml;
 pub mod channels_spec;
 pub mod channels_spec_yaml;
+pub mod filter_spec;
+pub mod filter_spec_yaml;
+pub mod filters_spec;
+pub mod filters_spec_yaml;
 pub mod version;
 
 pub use allora_spec::AlloraSpec;
@@ -71,3 +75,7 @@ pub use channel_spec::{ChannelKindSpec, ChannelSpec};
 pub use channel_spec_yaml::ChannelSpecYamlParser;
 pub use channels_spec::ChannelsSpec;
 pub use channels_spec_yaml::ChannelsSpecYamlParser;
+pub use filter_spec::FilterSpec;
+pub use filter_spec_yaml::FilterSpecYamlParser;
+pub use filters_spec::FiltersSpec;
+pub use filters_spec_yaml::FiltersSpecYamlParser;

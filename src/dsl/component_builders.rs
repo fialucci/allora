@@ -66,7 +66,8 @@
 use crate::{
     channel::{ChannelBuilder, InMemoryChannel},
     error::{Error, Result},
-    spec::{ChannelKindSpec, ChannelSpec, ChannelsSpec},
+    patterns::filter::Filter,
+    spec::{ChannelKindSpec, ChannelSpec, ChannelsSpec, FilterSpec, FiltersSpec},
 };
 use std::collections::HashSet;
 
@@ -131,6 +132,53 @@ pub fn build_channels_from_spec(spec: ChannelsSpec) -> Result<Vec<InMemoryChanne
     for ch in spec.channels() {
         let built = build_channel_spec_internal(ch, Some(&mut used), Some(&mut auto_ctr))?;
         result.push(built);
+    }
+    Ok(result)
+}
+
+/// Build a Filter from a validated `FilterSpec`.
+pub fn build_filter_from_spec(spec: FilterSpec) -> Result<Filter> {
+    Filter::from_apl(spec.when())
+}
+
+/// Build multiple Filters from FiltersSpec (collection). Returns Vec<Filter> preserving order.
+/// ID Strategy (mirrors channels):
+/// * Explicit non-empty `filter.id` values must be unique (error on duplicate).
+/// * Missing ids are generated deterministically as `filter:auto.N` starting at 1 within a single build invocation.
+/// * Generated ids are not currently stored on the runtime Filter (pure predicate), but the
+///   generation + uniqueness contract is enforced for future mapping / diagnostics.
+pub fn build_filters_from_spec(spec: FiltersSpec) -> Result<Vec<Filter>> {
+    let mut result = Vec::with_capacity(spec.filters().len());
+    let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut auto_ctr: u64 = 1;
+    for f in spec.filters() {
+        let id_opt = f.id().map(|s| s.to_string());
+        if let Some(ref idv) = id_opt {
+            if used.contains(idv) {
+                return Err(Error::serialization(format!("duplicate filter.id '{idv}'")));
+            }
+        }
+        let final_id = match id_opt {
+            Some(id) => {
+                used.insert(id.clone());
+                id
+            }
+            None => {
+                let mut gen = format!("filter:auto.{}", auto_ctr);
+                while used.contains(&gen) {
+                    auto_ctr += 1;
+                    gen = format!("filter:auto.{}", auto_ctr);
+                }
+                used.insert(gen.clone());
+                auto_ctr += 1;
+                gen
+            }
+        };
+        let mut built_spec = f.clone();
+        if built_spec.id().is_none() {
+            built_spec.set_id(final_id);
+        }
+        result.push(Filter::from_apl(built_spec.when())?);
     }
     Ok(result)
 }
