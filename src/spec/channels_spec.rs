@@ -4,6 +4,7 @@
 //! * Represents intent for multiple channels declared together sharing a version.
 //! * Order of insertion is preserved (stable iteration order).
 //! * Does not enforce uniqueness or non-empty ids (delegated to builders).
+//! * `ChannelsSpec::default()` now yields version=1 (matches parser expectations) and an empty channel list.
 //!
 //! # Construction Patterns
 //! * Immutable-style chaining via `add` (returns Self for fluent building).
@@ -24,10 +25,16 @@
 
 use crate::spec::ChannelSpec;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ChannelsSpec {
     version: u32,
     channels: Vec<ChannelSpec>,
+}
+// Explicit Default to avoid version=0 (parser requires version==1)
+impl Default for ChannelsSpec {
+    fn default() -> Self {
+        ChannelsSpec::new(1)
+    }
 }
 
 impl ChannelsSpec {
