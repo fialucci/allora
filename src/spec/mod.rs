@@ -21,7 +21,7 @@
 //! * Non-breaking extension path for new components (add new spec + parser; do not alter existing semantics).
 //!
 //! # Versioning Strategy
-//! * Each parser validates an integer `version` field (currently must equal 1).
+//! * Each parser validates an integer `version` field (currently must equal 1) via shared helper `version::validate_version`.
 //! * Breaking changes introduce new versioned parser modules (e.g. `channel_spec_yaml_v2.rs`).
 //! * Older parsers remain for backward compatibility.
 //!
@@ -40,61 +40,30 @@
 //! let chan = build_channel_from_str(raw, DslFormat::Yaml).unwrap();
 //! assert_eq!(chan.id(), "parsed-demo");
 //! ```
+//!
 //! # Specification Modules
-//!
-//! ## AlloraSpec
-//! The top-level specification aggregate. Currently only supports channel specifications, but
-//! designed for future extension to include endpoints, filters, and adapters.
-//!
-//! ## ChannelSpec
-//! Represents the intent for a single channel, including its type (kind) and identifier. Used for
-//! both programmatic specification and as a data model for parsed YAML configurations.
-//!
-//! ## ChannelsSpec
-//! A collection of channel specifications that share the same version. Facilitates versioned
-//! management of multiple channel specs.
+//! * `AlloraSpec`: top-level aggregate; future extension point.
+//! * `ChannelSpec`: single channel intent.
+//! * `ChannelsSpec`: ordered collection of channel specs sharing a version.
 //!
 //! # YAML Parser Modules
-//! Each spec type has a corresponding YAML parser module (e.g., `channel_spec_yaml.rs`) that
-//! translates parsed YAML values into the respective spec data models. These parsers also handle
-//! structural validation and version checks to ensure compatibility and correctness of the
-//! specifications.
+//! Each spec type has a corresponding YAML parser module translating YAML values into the spec.
+//! Parsers perform structural + version validation; they defer uniqueness to builders.
 //!
 //! # DSL Builders
-//! Located in `dsl/component_builders.rs`, these builders take the spec data models and handle
-//! the runtime instantiation logic, such as assigning unique IDs to channels and enforcing
-//! uniqueness constraints. They serve as the bridge between the declarative spec definitions and
-//! the imperative runtime environment.
+//! Builders instantiate runtime components from specs (ID generation, uniqueness checks).
 //!
 //! # Facade
-//! The facade layer, accessible through `dsl/mod.rs`, provides a simplified interface for
-//! building runtime components from specifications. It handles format inference and offers a
-//! unified `build()` function that returns the constructed `AlloraRuntime` instance.
+//! `dsl/mod.rs` exposes user-facing build APIs (`build()`, `build_channel()`), performing format inference.
 //!
-//! # Goals
-//! The primary goals of this architecture are to provide a clear separation between the various
-//! stages of specification parsing, validation, and runtime instantiation, enable programmatic
-//! specification construction without the need for YAML, and allow for non-breaking extensions
-//! of the system to accommodate new component types in the future.
-//!
-//! # Versioning Strategy
-//! The versioning strategy involves validating an integer `version` field in the specifications,
-//! with breaking changes leading to the introduction of new versioned parser modules, while
-//! maintaining older parsers for backward compatibility.
-//!
-//! # Uniqueness & IDs
-//! Uniqueness and ID management is handled by the builders, which enforce uniqueness constraints
-//! and generate deterministic auto IDs for channel specifications where necessary.
-//!
-//! # Example
-//! An example demonstrating both programmatic specification and YAML parsing is provided to
-//! illustrate the usage and capabilities of the specification module.
+//! This documentation intentionally avoids redundancy; for architecture-wide details see crate root docs.
 pub mod allora_spec;
 pub mod allora_spec_yaml;
 pub mod channel_spec;
 pub mod channel_spec_yaml;
 pub mod channels_spec;
 pub mod channels_spec_yaml;
+pub mod version;
 
 pub use allora_spec::AlloraSpec;
 pub use allora_spec_yaml::AlloraSpecYamlParser;

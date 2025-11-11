@@ -32,6 +32,7 @@
 //! Additional fields (e.g. QoS, durability) can be added per entry; preserve strict rejection of
 //! unknown root properties by performing validation before spec construction.
 
+use super::version::validate_version;
 use crate::error::{Error, Result};
 use crate::spec::channels_spec::ChannelsSpec;
 use crate::spec::{ChannelKindSpec, ChannelSpec};
@@ -41,26 +42,14 @@ pub struct ChannelsSpecYamlParser;
 
 impl ChannelsSpecYamlParser {
     pub fn parse_value(yaml: &YamlValue) -> Result<ChannelsSpec> {
-        let version_val = yaml
-            .get("version")
-            .ok_or_else(|| Error::serialization("missing 'version'"))?;
-        if !version_val.is_i64() && !version_val.is_u64() {
-            return Err(Error::serialization("'version' must be integer"));
-        }
-        let v = version_val
-            .as_i64()
-            .or_else(|| version_val.as_u64().map(|u| u as i64))
-            .unwrap();
-        if v != 1 {
-            return Err(Error::serialization("unsupported version (expected 1)"));
-        }
+        let v = validate_version(yaml)?; // shared validation
         let channels_val = yaml
             .get("channels")
             .ok_or_else(|| Error::serialization("missing 'channels'"))?;
         if !channels_val.is_sequence() {
             return Err(Error::serialization("'channels' must be a sequence"));
         }
-        let mut spec = ChannelsSpec::new(v as u32);
+        let mut spec = ChannelsSpec::new(v);
         for item in channels_val.as_sequence().unwrap() {
             if !item.is_mapping() {
                 return Err(Error::serialization("channel entry must be a mapping"));

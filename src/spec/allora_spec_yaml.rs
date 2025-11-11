@@ -20,6 +20,7 @@
 //! Additional top-level sections (e.g. `endpoints`, `filters`) can be added by retrieving their
 //! YAML values and invoking corresponding spec parsers before constructing `AlloraSpec`.
 
+use super::version::validate_version;
 use crate::error::{Error, Result};
 use crate::spec::{
     allora_spec::AlloraSpec, channels_spec_yaml::ChannelsSpecYamlParser, ChannelsSpec,
@@ -30,31 +31,18 @@ pub struct AlloraSpecYamlParser;
 
 impl AlloraSpecYamlParser {
     pub fn parse_value(yaml: &YamlValue) -> Result<AlloraSpec> {
-        let version_val = yaml
-            .get("version")
-            .ok_or_else(|| Error::serialization("missing 'version'"))?;
-        if !version_val.is_i64() && !version_val.is_u64() {
-            return Err(Error::serialization("'version' must be integer"));
-        }
-        let v = version_val
-            .as_i64()
-            .unwrap_or(version_val.as_u64().unwrap_or(0) as i64);
-        if v != 1 {
-            return Err(Error::serialization("unsupported version (expected 1)"));
-        }
+        let v = validate_version(yaml)?; // shared validation
         let channels_root = yaml
             .get("channels")
             .ok_or_else(|| Error::serialization("missing 'channels'"))?;
-        // Synthesize a YAML mapping with 'version' and 'channels' to reuse ChannelsSpecYamlParser,
-        // which expects this structure. This avoids code duplication and centralizes channel parsing logic.
         if !channels_root.is_sequence() {
             return Err(Error::serialization("'channels' must be a sequence"));
         }
-        // Reconstruct a YAML value containing version + channels for reuse of ChannelsSpecYamlParser
+        // Synthesize mapping for channel parser reuse
         let mut obj = serde_yaml::Mapping::new();
         obj.insert(
             serde_yaml::Value::String("version".into()),
-            serde_yaml::Value::Number(serde_yaml::Number::from(1)),
+            serde_yaml::Value::Number(serde_yaml::Number::from(v)),
         );
         obj.insert(
             serde_yaml::Value::String("channels".into()),
@@ -62,7 +50,7 @@ impl AlloraSpecYamlParser {
         );
         let synthesized = serde_yaml::Value::Mapping(obj);
         let channels_spec: ChannelsSpec = ChannelsSpecYamlParser::parse_value(&synthesized)?;
-        Ok(AlloraSpec::new(v as u32, channels_spec))
+        Ok(AlloraSpec::new(v, channels_spec))
     }
     pub fn parse_str(raw: &str) -> Result<AlloraSpec> {
         let val: YamlValue = serde_yaml::from_str(raw)
