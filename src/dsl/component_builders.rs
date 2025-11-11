@@ -144,40 +144,53 @@ pub fn build_filter_from_spec(spec: FilterSpec) -> Result<Filter> {
 /// Build multiple Filters from FiltersSpec (collection). Returns Vec<Filter> preserving order.
 /// ID Strategy (mirrors channels):
 /// * Explicit non-empty `filter.id` values must be unique (error on duplicate).
-/// * Missing ids are generated deterministically as `filter:auto.N` starting at 1 within a single build invocation.
+/// * Missing ids are generated deterministically as `filter:auto.N` starting at 1 (or the next
+///   number after the highest explicitly provided `filter:auto.X` id) within a single build invocation.
+/// * Users are discouraged from manually supplying IDs with the reserved `filter:auto.` prefix; if
+///   they do, generation will skip to the next available integer without scanning the entire set.
 /// * Generated ids are not currently stored on the runtime Filter (pure predicate), but the
 ///   generation + uniqueness contract is enforced for future mapping / diagnostics.
 pub fn build_filters_from_spec(spec: FiltersSpec) -> Result<Vec<Filter>> {
     let mut result = Vec::with_capacity(spec.filters().len());
     let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut auto_ctr: u64 = 1;
+    const AUTO_PREFIX: &str = "filter:auto.";
+
+    // Pre-scan explicit IDs to detect duplicates early and determine starting auto counter.
+    let mut max_auto_explicit: u64 = 0;
     for f in spec.filters() {
-        let id_opt = f.id().map(|s| s.to_string());
-        if let Some(ref idv) = id_opt {
-            if used.contains(idv) {
-                return Err(Error::serialization(format!("duplicate filter.id '{idv}'")));
+        if let Some(id) = f.id() {
+            let id_str = id.to_string();
+            if used.contains(&id_str) {
+                return Err(Error::serialization(format!(
+                    "duplicate filter.id '{id_str}'"
+                )));
             }
-        }
-        let final_id = match id_opt {
-            Some(id) => {
-                used.insert(id.clone());
-                id
-            }
-            None => {
-                let mut gen = format!("filter:auto.{}", auto_ctr);
-                while used.contains(&gen) {
-                    auto_ctr += 1;
-                    gen = format!("filter:auto.{}", auto_ctr);
+            // Track explicit reserved-pattern usages (e.g. filter:auto.7) to avoid collision.
+            if let Some(rest) = id_str.strip_prefix(AUTO_PREFIX) {
+                if let Ok(n) = rest.parse::<u64>() {
+                    max_auto_explicit = max_auto_explicit.max(n);
                 }
-                used.insert(gen.clone());
-                auto_ctr += 1;
-                gen
             }
-        };
-        let mut built_spec = f.clone();
-        if built_spec.id().is_none() {
-            built_spec.set_id(final_id);
+            used.insert(id_str);
         }
+    }
+
+    // Start auto counter at 1 after highest explicit reserved-pattern id.
+    let mut auto_ctr: u64 = max_auto_explicit + 1; // if none present, starts at 1
+
+    for f in spec.filters() {
+        // Skip if already has an id (was validated and added to `used`).
+        if f.id().is_some() {
+            // Build from expression directly.
+            result.push(Filter::from_apl(f.when())?);
+            continue;
+        }
+        // Generate next deterministic auto id (no collision loop needed).
+        let gen_id = format!("{AUTO_PREFIX}{auto_ctr}");
+        auto_ctr += 1;
+        used.insert(gen_id.clone());
+        let mut built_spec = f.clone();
+        built_spec.set_id(gen_id);
         result.push(Filter::from_apl(built_spec.when())?);
     }
     Ok(result)
