@@ -1,0 +1,31 @@
+# Allora Channel DSL Schema (documentation-only, v1, pure pipe)
+# Minimal structure required to build an in-memory channel.
+
+# schemas/v1/channel-config.schema.yaml
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "local://schemas/v1/channel-config.schema.yaml"
+
+type: object
+required: [ version, channel ]
+additionalProperties: false
+
+properties:
+  version:
+    type: integer
+    const: 1
+    default: 1                 # if missing, set to 1
+
+  channel:
+    type: object
+    additionalProperties: false
+    required: [ kind ]
+    default: { kind: in_memory }  # if 'channel' missing entirely
+    properties:
+      kind:
+        type: string
+        enum: [ in_memory ]
+        default: in_memory     # if 'kind' missing inside 'channel'
+      id:
+        type: string
+        minLength: 1           # optional; no default here
+

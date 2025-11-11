@@ -323,18 +323,9 @@ fn endpoint_attach_http_any_sync() {
 #[cfg(all(feature = "async", feature = "http"))]
 #[tokio::test]
 async fn endpoint_attach_http_async() {
-    use allora::processor::ClosureProcessor;
-    use allora::route::Route;
-    let route = Route::new()
-        .add(ClosureProcessor::new(|ex| {
-            ex.out_msg = Some(Message::from_text("dynA"));
-            Ok(())
-        }))
-        .build();
     let ep_channel = Arc::new(
         ChannelBuilder::point_to_point()
             .in_memory()
-            .route(route)
             .id("ep-chan-dynA")
             .build(),
     );
@@ -361,25 +352,17 @@ async fn endpoint_attach_http_async() {
     let resp = client.request(req).await.unwrap();
     assert_eq!(resp.status(), 200);
     let body = hyper::body::to_bytes(resp.into_body()).await.unwrap();
-    assert_eq!(&body[..], b"dynA");
+    // Pure pipe: response echoes inbound body
+    assert_eq!(&body[..], b"in");
     handle.abort();
 }
 
 #[cfg(all(feature = "async", feature = "http"))]
 #[tokio::test]
 async fn endpoint_attach_http_any_async() {
-    use allora::processor::ClosureProcessor;
-    use allora::route::Route;
-    let route = Route::new()
-        .add(ClosureProcessor::new(|ex| {
-            ex.out_msg = Some(Message::from_text("anyA"));
-            Ok(())
-        }))
-        .build();
     let ep_channel = Arc::new(
         ChannelBuilder::point_to_point()
             .in_memory()
-            .route(route)
             .id("ep-chan-anyA")
             .build(),
     );
@@ -407,7 +390,8 @@ async fn endpoint_attach_http_any_async() {
         let resp = client.request(req).await.unwrap();
         assert_eq!(resp.status(), 200);
         let body = hyper::body::to_bytes(resp.into_body()).await.unwrap();
-        assert_eq!(&body[..], b"anyA");
+        // Echo inbound body because no processing
+        assert_eq!(&body[..], b"x");
     }
     handle.abort();
 }

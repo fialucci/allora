@@ -1,0 +1,4 @@
+version: 1
+channel:
+  kind: in_memory
+  id: test-channel

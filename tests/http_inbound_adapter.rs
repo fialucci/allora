@@ -1,42 +1,23 @@
 #![cfg(feature = "http")]
 use allora::adapter::Adapter;
 use allora::channel::ChannelBuilder;
-use allora::{processor::ClosureProcessor, route::Route, Message};
-use hyper::Body;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn http_inbound_injects_correlation_and_echoes_it() {
-    let route = Route::new()
-        .add(ClosureProcessor::new(|ex| {
-            // Correlation should already be set by adapter before processors run.
-            let cid = ex
-                .in_msg
-                .header("correlation_id")
-                .expect("correlation id present");
-            ex.out_msg = Some(Message::from_text(cid));
-            Ok(())
-        }))
-        .build();
-    let channel = Arc::new(
-        ChannelBuilder::point_to_point()
-            .in_memory()
-            .route(route)
-            .build(),
-    );
+    use allora::OutboundQueue;
+    // Pure pipe channel (no internal route processing)
+    let channel = Arc::new(ChannelBuilder::point_to_point().in_memory().build());
     let addr: SocketAddr = "127.0.0.1:31002".parse().unwrap();
     let adapter = Adapter::inbound()
         .http()
         .host("127.0.0.1")
         .port(31002)
-        .channel(channel)
+        .channel(channel.clone())
         .build();
     let handle = adapter.spawn_once();
-
-    // Allow bind
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
     let client = hyper::Client::new();
     let req = hyper::Request::builder()
         .method(hyper::Method::POST)
@@ -47,9 +28,15 @@ async fn http_inbound_injects_correlation_and_echoes_it() {
     let resp = client.request(req).await.expect("http response");
     assert_eq!(resp.status(), 200);
     let bytes = hyper::body::to_bytes(resp.into_body()).await.unwrap();
-    let cid = std::str::from_utf8(&bytes).unwrap();
-    // Validate UUID v4 format roughly (length + hyphen positions + hex chars)
+    assert_eq!(&bytes[..], b"test"); // echo behavior
+                                     // Inspect queued exchange for correlation headers
+    let ex = channel.try_receive_async().await.expect("queued exchange");
+    let cid = ex
+        .in_msg
+        .header("correlation_id")
+        .expect("correlation_id header");
     assert_eq!(cid.len(), 36);
+    // minimal UUID v4 check: hyphen positions
     for (i, ch) in cid.chars().enumerate() {
         if [8, 13, 18, 23].contains(&i) {
             assert_eq!(ch, '-');
@@ -57,30 +44,18 @@ async fn http_inbound_injects_correlation_and_echoes_it() {
             assert!(ch.is_ascii_hexdigit());
         }
     }
-    // Await server completion via Future impl
     handle.await.expect("server completed");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn http_inbound_handle_wait_method() {
-    let route = Route::new()
-        .add(ClosureProcessor::new(|ex| {
-            ex.out_msg = Some(Message::from_text("ok"));
-            Ok(())
-        }))
-        .build();
-    let channel = Arc::new(
-        ChannelBuilder::point_to_point()
-            .in_memory()
-            .route(route)
-            .build(),
-    );
+    let channel = Arc::new(ChannelBuilder::point_to_point().in_memory().build());
     let addr: SocketAddr = "127.0.0.1:31003".parse().unwrap();
     let adapter = Adapter::inbound()
         .http()
         .host("127.0.0.1")
         .port(31003)
-        .channel(channel)
+        .channel(channel.clone())
         .build();
     let handle = adapter.spawn_once();
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -93,29 +68,13 @@ async fn http_inbound_handle_wait_method() {
     let resp = client.request(req).await.unwrap();
     assert_eq!(resp.status(), 200);
     let body = hyper::body::to_bytes(resp.into_body()).await.unwrap();
-    assert_eq!(&body[..], b"ok");
-    // Use explicit wait method instead of awaiting the Future directly
-    handle
-        .wait()
-        .await
-        .expect("server completed via wait method");
+    assert_eq!(&body[..], b"ignored"); // echo
+    handle.await.expect("server completed via wait method");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn http_inbound_staged_builder() {
-    use allora::adapter::Adapter; // staged builder root
-    let route = Route::new()
-        .add(ClosureProcessor::new(|ex| {
-            ex.out_msg = Some(Message::from_text("pong"));
-            Ok(())
-        }))
-        .build();
-    let channel = Arc::new(
-        ChannelBuilder::point_to_point()
-            .in_memory()
-            .route(route)
-            .build(),
-    );
+    let channel = Arc::new(ChannelBuilder::point_to_point().in_memory().build());
     let adapter = Adapter::inbound()
         .http()
         .host("127.0.0.1")
@@ -136,44 +95,25 @@ async fn http_inbound_staged_builder() {
     let resp = client.request(req).await.unwrap();
     assert_eq!(resp.status(), 200);
     let body = hyper::body::to_bytes(resp.into_body()).await.unwrap();
-    assert_eq!(&body[..], b"pong");
+    assert_eq!(&body[..], b"ping"); // echo
     handle.await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn http_inbound_multi_endpoint_registration() {
-    use allora::processor::ClosureProcessor;
-    use allora::route::Route;
-    use allora::Message;
-    // endpoint1 route
-    let route1 = Route::new()
-        .add(ClosureProcessor::new(|ex| {
-            ex.out_msg = Some(Message::from_text("resp1"));
-            Ok(())
-        }))
-        .build();
-    // endpoint2 route
-    let route2 = Route::new()
-        .add(ClosureProcessor::new(|ex| {
-            ex.out_msg = Some(Message::from_text("resp2"));
-            Ok(())
-        }))
-        .build();
+    use hyper::Body;
     let channel1 = Arc::new(
         ChannelBuilder::point_to_point()
             .in_memory()
-            .route(route1)
             .id("chan1")
             .build(),
     );
     let channel2 = Arc::new(
         ChannelBuilder::point_to_point()
             .in_memory()
-            .route(route2)
             .id("chan2")
             .build(),
     );
-    // endpoints
     let ep1 = allora::endpoint::EndpointBuilder::in_out()
         .in_memory()
         .channel(channel1.clone())
@@ -182,19 +122,17 @@ async fn http_inbound_multi_endpoint_registration() {
         .in_memory()
         .channel(channel2.clone())
         .build();
-    // adapter with registrations (method-specific)
     let adapter = Adapter::inbound()
         .http()
         .host("127.0.0.1")
         .port(33001)
-        .channel(channel1.clone()) // primary channel (unused for direct endpoint dispatch here)
+        .channel(channel1.clone())
         .register("POST", "/echo1", ep1.clone())
         .register("POST", "/echo2", ep2.clone())
         .build();
     let handle = adapter.spawn_serve();
     tokio::time::sleep(std::time::Duration::from_millis(120)).await;
     let client = hyper::Client::new();
-    // request 1
     let req1 = hyper::Request::builder()
         .method(hyper::Method::POST)
         .uri("http://127.0.0.1:33001/echo1")
@@ -203,8 +141,7 @@ async fn http_inbound_multi_endpoint_registration() {
     let resp1 = client.request(req1).await.unwrap();
     assert_eq!(resp1.status(), 200);
     let b1 = hyper::body::to_bytes(resp1.into_body()).await.unwrap();
-    assert_eq!(&b1[..], b"resp1");
-    // request 2
+    assert_eq!(&b1[..], b"x"); // echo
     let req2 = hyper::Request::builder()
         .method(hyper::Method::POST)
         .uri("http://127.0.0.1:33001/echo2")
@@ -213,38 +150,22 @@ async fn http_inbound_multi_endpoint_registration() {
     let resp2 = client.request(req2).await.unwrap();
     assert_eq!(resp2.status(), 200);
     let b2 = hyper::body::to_bytes(resp2.into_body()).await.unwrap();
-    assert_eq!(&b2[..], b"resp2");
+    assert_eq!(&b2[..], b"y"); // echo
     handle.abort();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn http_inbound_method_discrimination() {
-    use allora::processor::ClosureProcessor;
-    use allora::route::Route;
-    use allora::Message;
-    let route_post = Route::new()
-        .add(ClosureProcessor::new(|ex| {
-            ex.out_msg = Some(Message::from_text("post"));
-            Ok(())
-        }))
-        .build();
-    let route_get = Route::new()
-        .add(ClosureProcessor::new(|ex| {
-            ex.out_msg = Some(Message::from_text("get"));
-            Ok(())
-        }))
-        .build();
+    use hyper::Body;
     let channel_post = Arc::new(
         ChannelBuilder::point_to_point()
             .in_memory()
-            .route(route_post)
             .id("chanP")
             .build(),
     );
     let channel_get = Arc::new(
         ChannelBuilder::point_to_point()
             .in_memory()
-            .route(route_get)
             .id("chanG")
             .build(),
     );
@@ -267,7 +188,6 @@ async fn http_inbound_method_discrimination() {
     let handle = adapter.spawn_serve();
     tokio::time::sleep(std::time::Duration::from_millis(120)).await;
     let client = hyper::Client::new();
-    // POST
     let req_post = hyper::Request::builder()
         .method(hyper::Method::POST)
         .uri("http://127.0.0.1:33002/method")
@@ -276,8 +196,7 @@ async fn http_inbound_method_discrimination() {
     let resp_post = client.request(req_post).await.unwrap();
     assert_eq!(resp_post.status(), 200);
     let body_post = hyper::body::to_bytes(resp_post.into_body()).await.unwrap();
-    assert_eq!(&body_post[..], b"post");
-    // GET
+    assert_eq!(&body_post[..], b"p"); // echo
     let req_get = hyper::Request::builder()
         .method(hyper::Method::GET)
         .uri("http://127.0.0.1:33002/method")
@@ -286,6 +205,6 @@ async fn http_inbound_method_discrimination() {
     let resp_get = client.request(req_get).await.unwrap();
     assert_eq!(resp_get.status(), 200);
     let body_get = hyper::body::to_bytes(resp_get.into_body()).await.unwrap();
-    assert_eq!(&body_get[..], b"get");
+    assert_eq!(&body_get[..], b"g"); // echo
     handle.abort();
 }
