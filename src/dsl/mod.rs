@@ -141,8 +141,7 @@ fn build_runtime_from_str(raw: &str, format: DslFormat) -> Result<AlloraRuntime>
     match format {
         DslFormat::Yaml => {
             let top = AlloraSpecYamlParser::parse_str(raw)?;
-            let channels_spec = top.channels_spec(); // borrow rather than consume
-            let channels = build_channels_from_spec(channels_spec.clone())?; // clone spec for build
+            let channels = build_channels_from_spec(top.into_channels_spec())?; // consume top, avoid clone
             Ok(AlloraRuntime::new(channels))
         }
         DslFormat::Json => Err(Error::serialization("json format not yet supported")),

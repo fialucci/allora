@@ -45,7 +45,8 @@ impl AlloraSpecYamlParser {
         let channels_root = yaml
             .get("channels")
             .ok_or_else(|| Error::serialization("missing 'channels'"))?;
-        // Wrap into synthetic YAML for channels parser expecting version + channels? Instead parse sequence directly.
+        // Synthesize a YAML mapping with 'version' and 'channels' to reuse ChannelsSpecYamlParser,
+        // which expects this structure. This avoids code duplication and centralizes channel parsing logic.
         if !channels_root.is_sequence() {
             return Err(Error::serialization("'channels' must be a sequence"));
         }

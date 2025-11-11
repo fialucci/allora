@@ -73,7 +73,7 @@
 //! use allora::{build, Channel};
 //! let rt = build("tests/fixtures/allora.yml").unwrap();
 //! assert!(rt.channel_by_id("inbound.orders").is_some());
-//! assert_eq!(rt.channel_count(), 3); // depending on your fixture
+//! assert_eq!(rt.channel_count(), 3); // allora.yml defines 3 channels
 //! ```
 //!
 //! # Programmatic vs YAML Specs

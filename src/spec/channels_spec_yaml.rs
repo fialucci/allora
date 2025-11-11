@@ -49,7 +49,8 @@ impl ChannelsSpecYamlParser {
         }
         let v = version_val
             .as_i64()
-            .unwrap_or(version_val.as_u64().unwrap_or(0) as i64);
+            .or_else(|| version_val.as_u64().map(|u| u as i64))
+            .unwrap();
         if v != 1 {
             return Err(Error::serialization("unsupported version (expected 1)"));
         }

@@ -19,7 +19,7 @@ properties:
   channels:
     type: array
     minItems: 1
-    uniqueItems: true
+
     description: "List of channel definitions (kind required; id optional)."
     items:
       $ref: "local://schemas/v1/channel-config.schema.yaml#/properties/channel"
