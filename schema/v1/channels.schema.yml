@@ -1,0 +1,36 @@
+# Allora Channels Collection Schema (documentation-only, v1)
+# Represents multiple channel definitions sharing a single version declaration.
+# Reuses the single channel schema's `channel` object shape for each entry.
+
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "local://schemas/v1/channels.schema.yaml"
+
+title: "Allora Channels Collection Schema (v1)"
+description: "Collection of channel definitions using v1 channel object shape"
+type: object
+required: [ version, channels ]
+additionalProperties: false
+
+properties:
+  version:
+    type: integer
+    const: 1
+    default: 1
+  channels:
+    type: array
+    minItems: 1
+
+    description: "List of channel definitions (kind required; id optional)."
+    items:
+      $ref: "local://schemas/v1/channel.schema.yml#/properties/channel"
+
+examples:
+  - version: 1
+    channels:
+      - kind: in_memory
+        id: inbound.orders
+      - kind: in_memory
+        id: processed.orders
+      - kind: in_memory
+        id: error.deadletter
+
