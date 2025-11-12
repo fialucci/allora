@@ -31,3 +31,13 @@ fn filters_spec_yaml_empty_sequence_error() {
         other => panic!("unexpected error: {other:?}"),
     }
 }
+
+#[test]
+fn filters_spec_yaml_empty_list_error() {
+    let raw = "version: 1\nfilters: []"; // empty sequence violates minItems=1
+    let err = FiltersSpecYamlParser::parse_str(raw).expect_err("expected empty sequence error");
+    match err {
+        allora::Error::Serialization(msg) => assert!(msg.contains("must not be empty")),
+        other => panic!("unexpected error: {other:?}"),
+    }
+}

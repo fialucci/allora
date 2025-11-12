@@ -4,6 +4,7 @@
 //! # Responsibilities
 //! * Validate root `version` (must equal 1) using shared helper.
 //! * Ensure `filters` is a YAML sequence; each item is a mapping.
+//! * Enforce non-empty sequence (minItems = 1 per schema).
 //! * Delegate each item to `FilterSpecYamlParser::parse_value` (thus reusing single-filter validation logic).
 //! * Preserve order of entries for deterministic downstream processing.
 //!
@@ -48,7 +49,13 @@ impl FiltersSpecYamlParser {
             return Err(Error::serialization("'filters' must be a sequence"));
         }
         let mut spec = FiltersSpec::new(v);
-        for item in filters_val.as_sequence().unwrap() {
+        let seq = filters_val.as_sequence().unwrap();
+        if seq.is_empty() {
+            return Err(Error::serialization(
+                "'filters' sequence must not be empty (minItems=1)",
+            ));
+        }
+        for item in seq {
             if !item.is_mapping() {
                 return Err(Error::serialization("filter entry must be a mapping"));
             }
