@@ -44,6 +44,19 @@ impl AlloraSpec {
             filters: None,
         }
     }
+    /// Construct with an optional filters collection in a single call (ergonomic alternative to chaining `with_filters`).
+    /// When `filters` is `None`, behaves the same as `new`.
+    pub fn new_with_filters(
+        version: u32,
+        channels: ChannelsSpec,
+        filters: Option<FiltersSpec>,
+    ) -> Self {
+        Self {
+            version,
+            channels,
+            filters,
+        }
+    }
     pub fn with_filters(mut self, filters: FiltersSpec) -> Self {
         self.filters = Some(filters);
         self
