@@ -150,6 +150,28 @@ pub fn build_filter_from_spec(spec: FilterSpec) -> Result<Filter> {
 ///   they do, generation will skip to the next available integer without scanning the entire set.
 /// * Generated ids are not currently stored on the runtime Filter (pure predicate), but the
 ///   generation + uniqueness contract is enforced for future mapping / diagnostics.
+///
+/// # Reserved Prefix Behavior
+/// If a user explicitly declares `filter:auto.100` and two other filters without ids, this builder
+/// will assign `filter:auto.101` and `filter:auto.102`. The gap from 1..99 is intentional and left
+/// unused to avoid collision loops. This keeps the algorithm O(n) (single pre-scan) and predictable
+/// without repeatedly probing for free lower numbers.
+///
+/// # Recommendation
+/// Do NOT manually use the `filter:auto.` prefix unless you fully control the spec and accept the
+/// resulting sequence jump. Prefer descriptive domain IDs (e.g. `orders.priority.filter`). Future
+/// versions may emit a warning or error on user-provided reserved prefix usage if confusion proves
+/// common.
+///
+/// # Determinism
+/// The resulting auto IDs are stable for a given spec ordering. Adding or removing explicit
+/// reserved-pattern IDs only shifts the starting counter upward; it does not affect relative order
+/// among generated IDs.
+///
+/// # Future Option
+/// A stricter mode (feature flag) could: (1) reject explicit `filter:auto.*` ids, or (2) ignore
+/// high explicit numbers and still start at 1 while skipping collisions via a HashSet probe. Current
+/// approach favors performance and simplicity.
 pub fn build_filters_from_spec(spec: FiltersSpec) -> Result<Vec<Filter>> {
     let mut result = Vec::with_capacity(spec.filters().len());
     let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
