@@ -284,32 +284,34 @@ fn tokenize_apl(apl: &str) -> Vec<&str> {
 /// Build an atomic predicate closure from a raw token.
 fn build_atom(raw: &str) -> Box<dyn Fn(&Exchange) -> bool + Send + Sync> {
     let s = raw.trim();
+    // Use Arc<str> to allow cheap cloning of captured strings across closures, reducing
+    // memory duplication when the same header keys / values appear multiple times.
     if let Some(cap) = HEADER_EQ_RE.captures(s) {
-        let key = cap.get(1).unwrap().as_str().to_string();
-        let expected = cap.get(2).unwrap().as_str().to_string();
+        let key: Arc<str> = Arc::from(cap.get(1).unwrap().as_str());
+        let expected: Arc<str> = Arc::from(cap.get(2).unwrap().as_str());
         return Box::new(move |ex: &Exchange| {
             ex.in_msg
                 .headers
-                .get(&key)
-                .map(|v| v == &expected)
+                .get(key.as_ref())
+                .map(|v| v.as_str() == expected.as_ref())
                 .unwrap_or(false)
         });
     }
     if let Some(cap) = EXISTS_HEADER_RE.captures(s) {
-        let key = cap.get(1).unwrap().as_str().to_string();
-        return Box::new(move |ex: &Exchange| ex.in_msg.headers.get(&key).is_some());
+        let key: Arc<str> = Arc::from(cap.get(1).unwrap().as_str());
+        return Box::new(move |ex: &Exchange| ex.in_msg.headers.get(key.as_ref()).is_some());
     }
     if let Some(cap) = BODY_CONTAINS_RE.captures(s) {
-        let needle = cap.get(1).unwrap().as_str().to_string();
+        let needle: Arc<str> = Arc::from(cap.get(1).unwrap().as_str());
         return Box::new(move |ex: &Exchange| {
             ex.in_msg
                 .body_text()
-                .map(|b| b.contains(&needle))
+                .map(|b| b.contains(needle.as_ref()))
                 .unwrap_or(false)
         });
     }
-    let literal = s.to_string();
-    Box::new(move |ex: &Exchange| ex.in_msg.body_text() == Some(literal.as_str()))
+    let literal: Arc<str> = Arc::from(s);
+    Box::new(move |ex: &Exchange| ex.in_msg.body_text() == Some(literal.as_ref()))
 }
 
 impl SyncProcessor for Filter {
