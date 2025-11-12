@@ -35,7 +35,9 @@
 //!
 //! Error conditions (APL):
 //! * Empty expression → `Error::Serialization("empty predicate")`
-//! * Leading/trailing or consecutive logical operators → `Error::Serialization("logical operator parse error")`
+//! * Leading logical operator → `Error::Serialization("filter expression cannot start with a logical operator")`
+//! * Trailing logical operator → `Error::Serialization("filter expression cannot end with a logical operator")`
+//! * Consecutive logical operators → `Error::Serialization("consecutive logical operators are not allowed")`
 //! * Unrecognized atom pattern → treated as literal body equality (future versions may tighten and error instead).
 //!
 //! # Examples
