@@ -44,7 +44,7 @@ fn filter_spec_yaml_empty_from_error() {
     let raw = r#"version: 1
 filter:
   from: ""
-  when: header(\"X\") == \"Y\"
+  when: header("X") == "Y"
 "#;
     let err = FilterSpecYamlParser::parse_str(raw).expect_err("expected empty from error");
     match err {
@@ -73,7 +73,7 @@ fn filter_spec_yaml_empty_to_error() {
 filter:
   from: inbound.x
   to: ""
-  when: header(\"X\") == \"Y\"
+  when: header("X") == "Y"
 "#;
     let err = FilterSpecYamlParser::parse_str(raw).expect_err("expected empty to error");
     match err {
