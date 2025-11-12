@@ -87,6 +87,7 @@
 
 use crate::error::{Error, Result};
 use crate::{processor::SyncProcessor, Exchange};
+use once_cell::sync::Lazy;
 use once_cell::sync::OnceCell;
 use regex::Regex;
 use std::fmt::{Debug, Formatter, Result as FmtResult};
@@ -100,6 +101,19 @@ struct CompiledPlan {
 static PLAN_CACHE: OnceCell<
     std::sync::Mutex<std::collections::HashMap<String, Arc<CompiledPlan>>>,
 > = OnceCell::new();
+
+// Precompiled regular expressions for APL parsing (avoid per-call compilation overhead).
+static TOKEN_SPLIT_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\s*(?:(&&)|(\|\|))\s*").expect("valid token split regex"));
+static HEADER_EQ_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"^header\("([^"]+)"\)\s*==\s*"([^"]+)"$"#).expect("valid header eq regex")
+});
+static EXISTS_HEADER_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"^exists\(header\("([^"]+)"\)\)$"#).expect("valid exists header regex")
+});
+static BODY_CONTAINS_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"^body\.contains\("([^"]+)"\)$"#).expect("valid body.contains regex")
+});
 
 fn plan_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, Arc<CompiledPlan>>> {
     PLAN_CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
@@ -249,10 +263,9 @@ fn execute_plan(plan: &CompiledPlan, ex: &Exchange) -> bool {
 
 /// Tokenize APL by splitting on logical operators while retaining them.
 fn tokenize_apl(apl: &str) -> Vec<&str> {
-    let re = Regex::new(r"\s*(?:(&&)|(\|\|))\s*").unwrap();
     let mut parts = Vec::new();
     let mut last = 0;
-    for m in re.find_iter(apl) {
+    for m in TOKEN_SPLIT_RE.find_iter(apl) {
         let slice = apl[last..m.start()].trim();
         if !slice.is_empty() {
             parts.push(slice);
@@ -271,10 +284,7 @@ fn tokenize_apl(apl: &str) -> Vec<&str> {
 /// Build an atomic predicate closure from a raw token.
 fn build_atom(raw: &str) -> Box<dyn Fn(&Exchange) -> bool + Send + Sync> {
     let s = raw.trim();
-    if let Some(cap) = Regex::new(r#"^header\("([^"]+)"\)\s*==\s*"([^"]+)"$"#)
-        .unwrap()
-        .captures(s)
-    {
+    if let Some(cap) = HEADER_EQ_RE.captures(s) {
         let key = cap.get(1).unwrap().as_str().to_string();
         let expected = cap.get(2).unwrap().as_str().to_string();
         return Box::new(move |ex: &Exchange| {
@@ -285,17 +295,11 @@ fn build_atom(raw: &str) -> Box<dyn Fn(&Exchange) -> bool + Send + Sync> {
                 .unwrap_or(false)
         });
     }
-    if let Some(cap) = Regex::new(r#"^exists\(header\("([^"]+)"\)\)$"#)
-        .unwrap()
-        .captures(s)
-    {
+    if let Some(cap) = EXISTS_HEADER_RE.captures(s) {
         let key = cap.get(1).unwrap().as_str().to_string();
         return Box::new(move |ex: &Exchange| ex.in_msg.headers.get(&key).is_some());
     }
-    if let Some(cap) = Regex::new(r#"^body\.contains\("([^"]+)"\)$"#)
-        .unwrap()
-        .captures(s)
-    {
+    if let Some(cap) = BODY_CONTAINS_RE.captures(s) {
         let needle = cap.get(1).unwrap().as_str().to_string();
         return Box::new(move |ex: &Exchange| {
             ex.in_msg
