@@ -110,6 +110,7 @@ pub type Predicate = Box<dyn Fn(&Exchange) -> bool + Send + Sync + 'static>;
 pub struct Filter {
     plan: Arc<CompiledPlan>,
     error_message: Option<String>,
+    id: String,
 }
 
 impl Debug for Filter {
@@ -123,7 +124,6 @@ impl Filter {
     where
         P: Fn(&Exchange) -> bool + Send + Sync + 'static,
     {
-        // Wrap closure as single atom plan for uniform execution path
         let plan = CompiledPlan {
             atoms: vec![Box::new(p)],
             ops: Vec::new(),
@@ -131,6 +131,7 @@ impl Filter {
         Self {
             plan: Arc::new(plan),
             error_message: None,
+            id: uuid::Uuid::new_v4().to_string(),
         }
     }
     /// Create a filter with a custom rejection error message.
@@ -146,7 +147,11 @@ impl Filter {
         Self {
             plan: Arc::new(plan),
             error_message: Some(msg.into()),
+            id: uuid::Uuid::new_v4().to_string(),
         }
+    }
+    pub fn id(&self) -> &str {
+        &self.id
     }
     pub fn accepts(&self, exchange: &Exchange) -> bool {
         execute_plan(&self.plan, exchange)
@@ -155,11 +160,15 @@ impl Filter {
     /// See module docs for supported atoms & operators; returns `Error::Serialization` on structural issues.
     /// Unknown atom formats degrade to literal body equality.
     pub fn from_apl(apl: &str) -> Result<Self> {
-        // Attempt cache hit first
+        Self::from_apl_with_id(None, apl)
+    }
+    pub fn from_apl_with_id(id: Option<String>, apl: &str) -> Result<Self> {
         if let Some(plan) = plan_cache().lock().unwrap().get(apl).cloned() {
+            let fid = id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
             return Ok(Self {
                 plan,
                 error_message: None,
+                id: fid,
             });
         }
         let tokens = tokenize_apl(apl);
@@ -196,9 +205,11 @@ impl Filter {
             .lock()
             .unwrap()
             .insert(apl.to_string(), plan.clone());
-        Ok(Filter {
+        let fid = id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        Ok(Self {
             plan,
             error_message: None,
+            id: fid,
         })
     }
 }
@@ -293,6 +304,8 @@ impl SyncProcessor for Filter {
             Ok(())
         } else {
             let em = self.error_message.as_deref().unwrap_or("filtered out");
+            // Intentionally do not append filter id to preserve backward-compatible error matching in doctests.
+            // Future enhancement: optional inclusion via feature flag or structured error metadata.
             Err(crate::error::Error::Routing(em.into()))
         }
     }

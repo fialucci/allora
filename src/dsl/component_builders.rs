@@ -138,7 +138,8 @@ pub fn build_channels_from_spec(spec: ChannelsSpec) -> Result<Vec<InMemoryChanne
 
 /// Build a Filter from a validated `FilterSpec`.
 pub fn build_filter_from_spec(spec: FilterSpec) -> Result<Filter> {
-    Filter::from_apl(spec.when())
+    let id_opt = spec.id().map(|s| s.to_string());
+    Filter::from_apl_with_id(id_opt, spec.when())
 }
 
 /// Build multiple Filters from FiltersSpec (collection). Returns Vec<Filter> preserving order.
@@ -148,8 +149,7 @@ pub fn build_filter_from_spec(spec: FilterSpec) -> Result<Filter> {
 ///   number after the highest explicitly provided `filter:auto.X` id) within a single build invocation.
 /// * Users are discouraged from manually supplying IDs with the reserved `filter:auto.` prefix; if
 ///   they do, generation will skip to the next available integer without scanning the entire set.
-/// * Generated ids are not currently stored on the runtime Filter (pure predicate), but the
-///   generation + uniqueness contract is enforced for future mapping / diagnostics.
+/// * Generated ids are stored on the runtime `Filter` for diagnostics and future routing metadata.
 /// * Malformed reserved IDs (e.g. `filter:auto.bad`) are ignored for sequence advancement and a
 ///   warning is emitted via `tracing::warn!`.
 pub fn build_filters_from_spec(spec: FiltersSpec) -> Result<Vec<Filter>> {
@@ -174,18 +174,17 @@ pub fn build_filters_from_spec(spec: FiltersSpec) -> Result<Vec<Filter>> {
             used.insert(id.to_string());
         }
     }
-    // Second pass: build filters, generate ids for missing ones (tracking only; Filter is id-less)
+    // Second pass: build filters, generate ids for missing ones
     let mut auto_ctr = max_auto_explicit + 1;
     for f in spec.filters() {
-        if f.id().is_some() {
-            result.push(Filter::from_apl(f.when())?);
+        if let Some(id) = f.id() {
+            result.push(Filter::from_apl_with_id(Some(id.to_string()), f.when())?);
             continue;
         }
         let gen_id = format!("{AUTO_PREFIX}{auto_ctr}");
         auto_ctr += 1;
         used.insert(gen_id.clone());
-        // No need to clone and set ID, since Filter does not use it.
-        result.push(Filter::from_apl(f.when())?);
+        result.push(Filter::from_apl_with_id(Some(gen_id), f.when())?);
     }
     Ok(result)
 }
