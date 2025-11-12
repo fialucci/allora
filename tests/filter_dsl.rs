@@ -1,12 +1,10 @@
 #[path = "common/temp.rs"]
 mod temp;
+#[path = "common/filter.rs"]
+mod filter_helpers;
 use allora::{build_filter, Exchange, Filter, Message};
 use temp::temp_yaml;
-
-fn apply(filter: &Filter, body: &str) -> bool {
-    let ex = Exchange::new(Message::from_text(body));
-    filter.accepts(&ex)
-}
+use filter_helpers::apply;
 
 #[test]
 fn dsl_build_filter_from_file() {

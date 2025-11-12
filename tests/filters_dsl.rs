@@ -1,13 +1,10 @@
 use allora::dsl::component_builders::build_filters_from_spec;
 // internal builder reuse
 use allora::spec::FiltersSpecYamlParser;
-use allora::Filter;
-use allora::{Exchange, Message};
-
-fn apply(filter: &Filter, body: &str) -> bool {
-    let ex = Exchange::new(Message::from_text(body));
-    filter.accepts(&ex)
-}
+use allora::{build_filter, Exchange, Filter, Message};
+#[path = "common/filter.rs"]
+mod filter_helpers;
+use filter_helpers::apply;
 
 #[test]
 fn filters_dsl_build_multiple_from_fixture() {
