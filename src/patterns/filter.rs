@@ -240,7 +240,7 @@ fn execute_plan(plan: &CompiledPlan, ex: &Exchange) -> bool {
                 group_values.push(current_val);
                 current_val = next_atom_val;
             }
-            _ => {}
+            _ => unreachable!("unexpected operator: {}", op),
         }
     }
     group_values.push(current_val);
