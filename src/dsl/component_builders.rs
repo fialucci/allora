@@ -150,64 +150,30 @@ pub fn build_filter_from_spec(spec: FilterSpec) -> Result<Filter> {
 ///   they do, generation will skip to the next available integer without scanning the entire set.
 /// * Generated ids are not currently stored on the runtime Filter (pure predicate), but the
 ///   generation + uniqueness contract is enforced for future mapping / diagnostics.
-///
-/// # Reserved Prefix Behavior
-/// If a user explicitly declares `filter:auto.100` and two other filters without ids, this builder
-/// will assign `filter:auto.101` and `filter:auto.102`. The gap from 1..99 is intentional and left
-/// unused to avoid collision loops. This keeps the algorithm O(n) (single pre-scan) and predictable
-/// without repeatedly probing for free lower numbers.
-///
-/// # Recommendation
-/// Do NOT manually use the `filter:auto.` prefix unless you fully control the spec and accept the
-/// resulting sequence jump. Prefer descriptive domain IDs (e.g. `orders.priority.filter`). Future
-/// versions may emit a warning or error on user-provided reserved prefix usage if confusion proves
-/// common.
-///
-/// # Determinism
-/// The resulting auto IDs are stable for a given spec ordering. Adding or removing explicit
-/// reserved-pattern IDs only shifts the starting counter upward; it does not affect relative order
-/// among generated IDs.
-///
-/// # Future Option
-/// A stricter mode (feature flag) could: (1) reject explicit `filter:auto.*` ids, or (2) ignore
-/// high explicit numbers and still start at 1 while skipping collisions via a HashSet probe. Current
-/// approach favors performance and simplicity.
 pub fn build_filters_from_spec(spec: FiltersSpec) -> Result<Vec<Filter>> {
     let mut result = Vec::with_capacity(spec.filters().len());
-    let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
     const AUTO_PREFIX: &str = "filter:auto.";
-
-    // Pre-scan explicit IDs to detect duplicates early and determine starting auto counter.
-    let mut max_auto_explicit: u64 = 0;
+    let mut used = std::collections::HashSet::new();
+    let mut max_auto_explicit = 0u64;
+    // First pass: validate explicit ids & find highest reserved pattern
     for f in spec.filters() {
         if let Some(id) = f.id() {
-            let id_str = id.to_string();
-            if used.contains(&id_str) {
-                return Err(Error::serialization(format!(
-                    "duplicate filter.id '{id_str}'"
-                )));
+            if used.contains(id) {
+                return Err(Error::serialization(format!("duplicate filter.id '{id}'")));
             }
-            // Track explicit reserved-pattern usages (e.g. filter:auto.7) to avoid collision.
-            if let Some(rest) = id_str.strip_prefix(AUTO_PREFIX) {
-                if let Ok(n) = rest.parse::<u64>() {
-                    max_auto_explicit = max_auto_explicit.max(n);
-                }
+            if let Some(rest) = id.strip_prefix(AUTO_PREFIX) {
+                if let Ok(n) = rest.parse::<u64>() { max_auto_explicit = max_auto_explicit.max(n); }
             }
-            used.insert(id_str);
+            used.insert(id.to_string());
         }
     }
-
-    // Start auto counter at 1 after highest explicit reserved-pattern id.
-    let mut auto_ctr: u64 = max_auto_explicit + 1; // if none present, starts at 1
-
+    // Second pass: build filters, generate ids for missing ones (tracking only; Filter is id-less)
+    let mut auto_ctr = max_auto_explicit + 1;
     for f in spec.filters() {
-        // Skip if already has an id (was validated and added to `used`).
         if f.id().is_some() {
-            // Build from expression directly.
             result.push(Filter::from_apl(f.when())?);
             continue;
         }
-        // Generate next deterministic auto id (no collision loop needed).
         let gen_id = format!("{AUTO_PREFIX}{auto_ctr}");
         auto_ctr += 1;
         used.insert(gen_id.clone());

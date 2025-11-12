@@ -135,29 +135,31 @@ impl Filter {
         }
         let is_op = |t: &str| t == "&&" || t == "||";
         if is_op(&tokens[0]) {
-            return Err(Error::serialization("filter expression cannot start with a logical operator"));
+            return Err(Error::serialization("logical operator parse error"));
         }
         if is_op(tokens.last().unwrap()) {
-            return Err(Error::serialization("filter expression cannot end with a logical operator"));
+            return Err(Error::serialization("logical operator parse error"));
         }
         for w in tokens.windows(2) {
             if is_op(&w[0]) && is_op(&w[1]) {
-                return Err(Error::serialization("consecutive logical operators are not allowed"));
+                return Err(Error::serialization("logical operator parse error"));
             }
         }
         let mut atoms: Vec<Box<dyn Fn(&Exchange) -> bool + Send + Sync>> = Vec::new();
         let mut ops: Vec<String> = Vec::new();
         for t in &tokens {
             if is_op(t) {
-                ops.push(t.clone());
+                ops.push(t.to_string());
             } else {
                 atoms.push(build_atom(t));
             }
         }
         // Build index mapping: atoms interleaved with ops. Implement precedence: evaluate groups separated by ||.
         let predicate = move |ex: &Exchange| {
-            // Atoms is guaranteed non-empty due to validation above (lines 133-144).
-            debug_assert!(!atoms.is_empty(), "atoms should never be empty after validation");
+            debug_assert!(
+                !atoms.is_empty(),
+                "atoms vector should not be empty after validation"
+            );
             // Evaluate left-associative && groups.
             let mut group_values: Vec<bool> = Vec::new();
             let mut current_val = (atoms[0])(ex);
