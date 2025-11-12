@@ -7,12 +7,13 @@
 //! 3. Facade (this file): public ergonomic API + format inference.
 //!
 //! # Goals
-//! * Provide a minimal, stable surface (`build`, `build_channel`, `build_channel_from_str`, `DslFormat`).
+//! * Provide a minimal, stable surface (`build`, `build_channel`, `build_channel_from_str`, `build_filter`, `DslFormat`).
 //! * Keep parsing & instantiation decoupled so additional formats/components add minimal code.
 //! * Fail fast with clear, categorized errors (`Error::Serialization` vs `Error::Other`).
 //!
 //! # Supported Components (v1)
 //! * Channel (InMemory kind)
+//! * Filter (single filter spec via `build_filter` AND aggregated when present in top-level `allora.yml` into `AlloraRuntime`)
 //!
 //! # Supported Formats
 //! * YAML (`DslFormat::Yaml`)
@@ -25,20 +26,39 @@
 //! println!("channel id={}", ch.id());
 //! ```
 //!
-//! # Building the Full Runtime (AlloraRuntime)
-//! Use `build()` when you want all declared components from a top-level `allora.yml`:
+//! # Building a Single Filter
 //! ```rust
-//! use allora::{build, Channel};
-//! let rt = build("tests/fixtures/allora.yml").unwrap();
-//! for ch in rt.channels() { println!("channel={}", ch.id()); }
-//! assert_eq!(rt.channel_count(), 3);
+//! use allora::build_filter;
+//! let f = build_filter("tests/fixtures/filter.yml").unwrap();
+//! // apply using f.accepts(exchange)
 //! ```
-//! This returns an `AlloraRuntime` aggregate. Future versions will add `endpoints()`, `filters()`, etc.
+//!
+//! # Building Multiple Filters (collection spec)
+//! Parse with `FiltersSpecYamlParser` then call `build_filters_from_spec` (internal builder). IDs are auto-generated when absent.
+//! ```rust
+//! use allora::spec::FiltersSpecYamlParser;
+//! use allora::dsl::component_builders::build_filters_from_spec;
+//! let raw = std::fs::read_to_string("tests/fixtures/filters.yml").unwrap();
+//! let spec = FiltersSpecYamlParser::parse_str(&raw).unwrap();
+//! let filters = build_filters_from_spec(spec).unwrap();
+//! assert!(!filters.is_empty());
+//! ```
+//!
+//! # Building the Full Runtime (AlloraRuntime)
+//! Use `build()` when you want all declared components from top-level `allora.yml`:
+//! ```rust
+//! use allora::{build, Channel, Filter};
+//! let rt = build("tests/fixtures/allora.yml").unwrap();
+//! assert!(rt.channel_by_id("inbound.orders").is_some());
+//! assert!(rt.filters().len() >= 1); // filters aggregated when declared
+//! ```
+//! Runtime accessors now: `channels()`, `channel_by_id()`, `channel_count()`, `filters()`, `filter_count()`, plus ownership via `into_channels()` / `into_filters()`.
 //!
 //! # Access Patterns
-//! * Borrow: `rt.channels()`
+//! * Borrow: `rt.channels()`, `rt.filters()`
 //! * Lookup: `rt.channel_by_id("inbound.orders")`
-//! * Consume: `rt.into_channels()` (yields `Vec<InMemoryChannel>`)
+//! * Counts: `rt.channel_count()`, `rt.filter_count()`
+//! * Consume: `rt.into_channels()`, `rt.into_filters()`
 //!
 //! # Error Semantics
 //! * `Error::Other` – I/O failures (e.g. unreadable file path)
@@ -47,46 +67,53 @@
 //! # Extension Guide (Adding New Components)
 //! 1. Define data model spec (`*_spec.rs`)
 //! 2. Add parser (`*_spec_yaml.rs`) validating version + fields
-//! 3. Extend `AlloraSpec` to hold new spec collection
+//! 3. Extend `AlloraSpec` to hold new spec collection (e.g. filters, endpoints)
 //! 4. Add builder in `component_builders.rs`
 //! 5. Augment `build_runtime_from_str` to assemble new runtime objects
 //! 6. Add accessors on `AlloraRuntime`
 //!
-//! # Format Addition (JSON Example Outline)
-//! * Introduce `ChannelSpecJsonParser` implementing `parse_str` from JSON text
-//! * Add branch in `build_channel_from_str` / `build_runtime_from_str` for `DslFormat::Json`
+//! # Format Addition (JSON Outline)
+//! * Introduce `*_json_parser` implementing `parse_str`
+//! * Branch in `build_*_from_str` and `build_runtime_from_str`
 //! * Reuse existing builders (format-agnostic)
 //!
 //! # Testing Strategy
 //! * Parser edge cases near parser modules (`*_spec_yaml.rs`)
-//! * Builder invariants in `tests/channels.rs` / `tests/channels_spec.rs`
-//! * Facade behavior & runtime aggregation in `tests/dsl_runtime.rs` & `tests/allora_spec.rs`
+//! * Builder invariants in dedicated tests (channels, filters)
+//! * Facade behavior & runtime aggregation in runtime-focused tests
 //!
 //! # Versioning
 //! * Each spec parser validates an explicit integer `version`
-//! * New incompatible changes introduce parallel parser modules (`*_v2_yaml.rs`) preserving old behavior
+//! * Breaking changes add parallel parser modules (`*_v2_yaml.rs`) preserving old behavior
 //!
 //! # Internal Helpers (Non-Public)
-//! * `build_runtime_from_str` – core dispatcher from raw text + format
-//! * Channel-only parser path reused for runtime build
+//! * `build_runtime_from_str` – dispatcher from raw text + format (now aggregates filters when present)
+//! * `build_filter_from_str` / `build_filters_from_str` – kept private
 //!
-//! # Future Roadmap (Illustrative)
-//! * Multiple channel kinds (e.g. `kafka`, `amqp`) -> extend `ChannelKindSpec` & builder dispatch
-//! * Endpoints (HTTP, File) & adapters -> additional spec + builder sets
-//! * Filters & routers -> expression parsing + pattern instantiation prior to channel send
+//! # Roadmap
+//! * Multiple channel kinds (kafka, amqp)
+//! * Additional pattern components (routers, splitters) aggregated in runtime
+//! * Endpoints & adapters (HTTP, file, custom transport)
+//! * JSON/XML DSL formats
+//! * Expanded expression language (parentheses, negation, path navigation)
 //!
-//! This documentation intentionally focuses on architecture & extensibility rather than reiterating
-//! implementation details already present in source.
+//! This documentation focuses on architecture & extensibility; see component modules for specifics.
 
 use crate::{
     channel::InMemoryChannel,
     error::{Error, Result},
-    spec::{AlloraSpecYamlParser, ChannelSpecYamlParser},
+    patterns::filter::Filter,
+    spec::{
+        AlloraSpecYamlParser, ChannelSpecYamlParser, FilterSpecYamlParser, FiltersSpecYamlParser,
+    },
+};
+use component_builders::{
+    build_channel_from_spec, build_channels_from_spec, build_filter_from_spec,
+    build_filters_from_spec,
 };
 use std::path::Path;
 
 pub mod component_builders;
-use component_builders::{build_channel_from_spec, build_channels_from_spec};
 pub mod runtime;
 use runtime::AlloraRuntime;
 
@@ -136,13 +163,54 @@ pub fn build_channel(path: impl AsRef<Path>) -> Result<InMemoryChannel> {
     build_channel_from_str(&raw, format)
 }
 
+/// Build filter from raw string + specified format.
+fn build_filter_from_str(raw: &str, format: DslFormat) -> Result<Filter> {
+    match format {
+        DslFormat::Yaml => {
+            let spec = FilterSpecYamlParser::parse_str(raw)?;
+            build_filter_from_spec(spec)
+        }
+        DslFormat::Json => Err(Error::serialization("json format not yet supported")),
+        DslFormat::Xml => Err(Error::serialization("xml format not yet supported")),
+    }
+}
+
+/// Convenience: build filter from a file path (auto-detect format via extension).
+pub fn build_filter(path: impl AsRef<Path>) -> Result<Filter> {
+    let path_ref = path.as_ref();
+    let raw =
+        std::fs::read_to_string(path_ref).map_err(|e| Error::other(format!("read error: {e}")))?;
+    let format = DslFormat::from_path(path_ref)
+        .ok_or_else(|| Error::serialization("cannot infer DSL format from extension"))?;
+    build_filter_from_str(&raw, format)
+}
+
+/// Build filters from raw string + format (collection form) - private helper.
+fn build_filters_from_str(raw: &str, format: DslFormat) -> Result<Vec<Filter>> {
+    match format {
+        DslFormat::Yaml => {
+            let spec = FiltersSpecYamlParser::parse_str(raw)?;
+            build_filters_from_spec(spec)
+        }
+        _ => Err(Error::serialization("filters: format not yet supported")),
+    }
+}
+
 /// Internal helper: build full runtime from raw + format.
 fn build_runtime_from_str(raw: &str, format: DslFormat) -> Result<AlloraRuntime> {
     match format {
         DslFormat::Yaml => {
             let top = AlloraSpecYamlParser::parse_str(raw)?;
-            let channels = build_channels_from_spec(top.into_channels_spec())?; // consume top, avoid clone
-            Ok(AlloraRuntime::new(channels))
+            // Clone filters (optional) first, then consume `top` for channels to avoid cloning channels_spec.
+            let filters_spec = top.filters_spec().cloned();
+            let channels_spec = top.into_channels_spec();
+            let channels = build_channels_from_spec(channels_spec)?;
+            let mut rt = AlloraRuntime::new(channels);
+            if let Some(fspec) = filters_spec {
+                let filters = build_filters_from_spec(fspec)?;
+                rt = rt.with_filters(filters);
+            }
+            Ok(rt)
         }
         DslFormat::Json => Err(Error::serialization("json format not yet supported")),
         DslFormat::Xml => Err(Error::serialization("xml format not yet supported")),

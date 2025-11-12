@@ -1,0 +1,14 @@
+# Filter DSL fixture (v1)
+# Semantics of 'when': Accept only if BOTH conditions hold:
+# 1) Body contains substring KEEP
+# 2) Trace-Id header is present
+# Truth table (body_has_KEEP, trace_id_present) -> accept:
+#   (true, true)  => true
+#   (true, false) => false
+#   (false, true) => false
+#   (false, false)=> false
+version: 1
+filter:
+  from: inbound.orders
+  to: vetted.orders
+  when: body.contains("KEEP") && exists(header("Trace-Id"))

@@ -66,7 +66,8 @@
 use crate::{
     channel::{ChannelBuilder, InMemoryChannel},
     error::{Error, Result},
-    spec::{ChannelKindSpec, ChannelSpec, ChannelsSpec},
+    patterns::filter::Filter,
+    spec::{ChannelKindSpec, ChannelSpec, ChannelsSpec, FilterSpec, FiltersSpec},
 };
 use std::collections::HashSet;
 
@@ -131,6 +132,59 @@ pub fn build_channels_from_spec(spec: ChannelsSpec) -> Result<Vec<InMemoryChanne
     for ch in spec.channels() {
         let built = build_channel_spec_internal(ch, Some(&mut used), Some(&mut auto_ctr))?;
         result.push(built);
+    }
+    Ok(result)
+}
+
+/// Build a Filter from a validated `FilterSpec`.
+pub fn build_filter_from_spec(spec: FilterSpec) -> Result<Filter> {
+    let id_opt = spec.id().map(|s| s.to_string());
+    Filter::from_apl_with_id(id_opt, spec.when())
+}
+
+/// Build multiple Filters from FiltersSpec (collection). Returns Vec<Filter> preserving order.
+/// ID Strategy (mirrors channels):
+/// * Explicit non-empty `filter.id` values must be unique (error on duplicate).
+/// * Missing ids are generated deterministically as `filter:auto.N` starting at 1 (or the next
+///   number after the highest explicitly provided `filter:auto.X` id) within a single build invocation.
+/// * Users are discouraged from manually supplying IDs with the reserved `filter:auto.` prefix; if
+///   they do, generation will skip to the next available integer without scanning the entire set.
+/// * Generated ids are stored on the runtime `Filter` for diagnostics and future routing metadata.
+/// * Malformed reserved IDs (e.g. `filter:auto.bad`) are ignored for sequence advancement and a
+///   warning is emitted via `tracing::warn!`.
+pub fn build_filters_from_spec(spec: FiltersSpec) -> Result<Vec<Filter>> {
+    let mut result = Vec::with_capacity(spec.filters().len());
+    const AUTO_PREFIX: &str = "filter:auto.";
+    let mut used = std::collections::HashSet::new();
+    let mut max_auto_explicit = 0u64;
+    // First pass: validate explicit ids & find highest reserved pattern
+    for f in spec.filters() {
+        if let Some(id) = f.id() {
+            if used.contains(id) {
+                return Err(Error::serialization(format!("duplicate filter.id '{id}'")));
+            }
+            if let Some(rest) = id.strip_prefix(AUTO_PREFIX) {
+                match rest.parse::<u64>() {
+                    Ok(n) => max_auto_explicit = max_auto_explicit.max(n),
+                    Err(_) => {
+                        tracing::warn!(%id, "ignoring malformed reserved auto-id suffix; expected numeric after filter:auto.")
+                    }
+                }
+            }
+            used.insert(id.to_string());
+        }
+    }
+    // Second pass: build filters, generate ids for missing ones
+    let mut auto_ctr = max_auto_explicit + 1;
+    for f in spec.filters() {
+        if let Some(id) = f.id() {
+            result.push(Filter::from_apl_with_id(Some(id.to_string()), f.when())?);
+            continue;
+        }
+        let gen_id = format!("{AUTO_PREFIX}{auto_ctr}");
+        auto_ctr += 1;
+        used.insert(gen_id.clone());
+        result.push(Filter::from_apl_with_id(Some(gen_id), f.when())?);
     }
     Ok(result)
 }
