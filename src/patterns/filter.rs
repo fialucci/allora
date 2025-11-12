@@ -87,13 +87,28 @@
 
 use crate::error::{Error, Result};
 use crate::{processor::SyncProcessor, Exchange};
+use once_cell::sync::OnceCell;
 use regex::Regex;
 use std::fmt::{Debug, Formatter, Result as FmtResult};
+use std::sync::Arc;
+
+struct CompiledPlan {
+    atoms: Vec<Box<dyn Fn(&Exchange) -> bool + Send + Sync>>, // atomic predicates
+    ops: Vec<String>,                                         // logical operators between atoms
+}
+
+static PLAN_CACHE: OnceCell<
+    std::sync::Mutex<std::collections::HashMap<String, Arc<CompiledPlan>>>,
+> = OnceCell::new();
+
+fn plan_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, Arc<CompiledPlan>>> {
+    PLAN_CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
 
 pub type Predicate = Box<dyn Fn(&Exchange) -> bool + Send + Sync + 'static>;
 
 pub struct Filter {
-    predicate: Predicate,
+    plan: Arc<CompiledPlan>,
     error_message: Option<String>,
 }
 
@@ -108,8 +123,13 @@ impl Filter {
     where
         P: Fn(&Exchange) -> bool + Send + Sync + 'static,
     {
+        // Wrap closure as single atom plan for uniform execution path
+        let plan = CompiledPlan {
+            atoms: vec![Box::new(p)],
+            ops: Vec::new(),
+        };
         Self {
-            predicate: Box::new(p),
+            plan: Arc::new(plan),
             error_message: None,
         }
     }
@@ -119,18 +139,29 @@ impl Filter {
         P: Fn(&Exchange) -> bool + Send + Sync + 'static,
         S: Into<String>,
     {
+        let plan = CompiledPlan {
+            atoms: vec![Box::new(p)],
+            ops: Vec::new(),
+        };
         Self {
-            predicate: Box::new(p),
+            plan: Arc::new(plan),
             error_message: Some(msg.into()),
         }
     }
     pub fn accepts(&self, exchange: &Exchange) -> bool {
-        (self.predicate)(exchange)
+        execute_plan(&self.plan, exchange)
     }
     /// Build a filter from an APL (Allora Predicate Language) expression string (v1).
     /// See module docs for supported atoms & operators; returns `Error::Serialization` on structural issues.
     /// Unknown atom formats degrade to literal body equality.
     pub fn from_apl(apl: &str) -> Result<Self> {
+        // Attempt cache hit first
+        if let Some(plan) = plan_cache().lock().unwrap().get(apl).cloned() {
+            return Ok(Self {
+                plan,
+                error_message: None,
+            });
+        }
         let tokens = tokenize_apl(apl);
         if tokens.is_empty() {
             return Err(Error::serialization("empty predicate"));
@@ -156,39 +187,43 @@ impl Filter {
                 atoms.push(build_atom(t));
             }
         }
-        // Build index mapping: atoms interleaved with ops. Implement precedence: evaluate groups separated by ||.
-        let predicate = move |ex: &Exchange| {
-            debug_assert!(
-                !atoms.is_empty(),
-                "atoms vector should not be empty after validation"
-            );
-            // Evaluate left-associative && groups.
-            let mut group_values: Vec<bool> = Vec::new();
-            let mut current_val = (atoms[0])(ex);
-            let mut atom_index = 1; // next atom index
-            for op in &ops {
-                let next_atom_val = (atoms[atom_index])(ex);
-                atom_index += 1;
-                match op.as_str() {
-                    "&&" => {
-                        current_val = current_val && next_atom_val;
-                    }
-                    "||" => {
-                        group_values.push(current_val);
-                        current_val = next_atom_val;
-                    }
-                    _ => {}
-                }
-            }
-            group_values.push(current_val);
-            // OR reduction
-            group_values.into_iter().any(|v| v)
-        };
+        debug_assert!(
+            !atoms.is_empty(),
+            "atoms vector should not be empty after validation"
+        );
+        let plan = Arc::new(CompiledPlan { atoms, ops });
+        plan_cache()
+            .lock()
+            .unwrap()
+            .insert(apl.to_string(), plan.clone());
         Ok(Filter {
-            predicate: Box::new(predicate),
+            plan,
             error_message: None,
         })
     }
+}
+
+fn execute_plan(plan: &CompiledPlan, ex: &Exchange) -> bool {
+    // Evaluate left-associative && groups segmented by ||
+    let atoms = &plan.atoms;
+    let ops = &plan.ops;
+    let mut group_values: Vec<bool> = Vec::new();
+    let mut current_val = (atoms[0])(ex);
+    let mut atom_index = 1;
+    for op in ops {
+        let next_atom_val = (atoms[atom_index])(ex);
+        atom_index += 1;
+        match op.as_str() {
+            "&&" => current_val = current_val && next_atom_val,
+            "||" => {
+                group_values.push(current_val);
+                current_val = next_atom_val;
+            }
+            _ => {}
+        }
+    }
+    group_values.push(current_val);
+    group_values.into_iter().any(|v| v)
 }
 
 /// Tokenize APL by splitting on logical operators while retaining them.
@@ -254,7 +289,7 @@ fn build_atom(raw: &str) -> Box<dyn Fn(&Exchange) -> bool + Send + Sync> {
 
 impl SyncProcessor for Filter {
     fn process_sync(&self, exchange: &mut Exchange) -> Result<()> {
-        if self.accepts(exchange) {
+        if execute_plan(&self.plan, exchange) {
             Ok(())
         } else {
             let em = self.error_message.as_deref().unwrap_or("filtered out");
