@@ -150,6 +150,8 @@ pub fn build_filter_from_spec(spec: FilterSpec) -> Result<Filter> {
 ///   they do, generation will skip to the next available integer without scanning the entire set.
 /// * Generated ids are not currently stored on the runtime Filter (pure predicate), but the
 ///   generation + uniqueness contract is enforced for future mapping / diagnostics.
+/// * Malformed reserved IDs (e.g. `filter:auto.bad`) are ignored for sequence advancement and a
+///   warning is emitted via `tracing::warn!`.
 pub fn build_filters_from_spec(spec: FiltersSpec) -> Result<Vec<Filter>> {
     let mut result = Vec::with_capacity(spec.filters().len());
     const AUTO_PREFIX: &str = "filter:auto.";
@@ -162,7 +164,12 @@ pub fn build_filters_from_spec(spec: FiltersSpec) -> Result<Vec<Filter>> {
                 return Err(Error::serialization(format!("duplicate filter.id '{id}'")));
             }
             if let Some(rest) = id.strip_prefix(AUTO_PREFIX) {
-                if let Ok(n) = rest.parse::<u64>() { max_auto_explicit = max_auto_explicit.max(n); }
+                match rest.parse::<u64>() {
+                    Ok(n) => max_auto_explicit = max_auto_explicit.max(n),
+                    Err(_) => {
+                        tracing::warn!(%id, "ignoring malformed reserved auto-id suffix; expected numeric after filter:auto.")
+                    }
+                }
             }
             used.insert(id.to_string());
         }
