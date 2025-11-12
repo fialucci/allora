@@ -22,7 +22,7 @@ fn filter_spec_yaml_parse_without_to_success() {
     let raw = r#"version: 1
 filter:
   from: inbound.audit
-  when: exists(header(\"Audit-Flag\")) && header(\"Audit-Flag\") == \"true\"
+  when: exists(header("Audit-Flag")) && header("Audit-Flag") == "true"
 "#;
     let spec = FilterSpecYamlParser::parse_str(raw).expect("parse filter spec without to");
     assert_eq!(spec.from(), "inbound.audit");

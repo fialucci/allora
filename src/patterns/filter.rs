@@ -134,12 +134,15 @@ impl Filter {
             return Err(Error::serialization("empty predicate"));
         }
         let is_op = |t: &str| t == "&&" || t == "||";
-        if is_op(&tokens[0]) || is_op(tokens.last().unwrap()) {
-            return Err(Error::serialization("logical operator parse error"));
+        if is_op(&tokens[0]) {
+            return Err(Error::serialization("filter expression cannot start with a logical operator"));
+        }
+        if is_op(tokens.last().unwrap()) {
+            return Err(Error::serialization("filter expression cannot end with a logical operator"));
         }
         for w in tokens.windows(2) {
             if is_op(&w[0]) && is_op(&w[1]) {
-                return Err(Error::serialization("logical operator parse error"));
+                return Err(Error::serialization("consecutive logical operators are not allowed"));
             }
         }
         let mut atoms: Vec<Box<dyn Fn(&Exchange) -> bool + Send + Sync>> = Vec::new();
@@ -153,9 +156,8 @@ impl Filter {
         }
         // Build index mapping: atoms interleaved with ops. Implement precedence: evaluate groups separated by ||.
         let predicate = move |ex: &Exchange| {
-            if atoms.is_empty() {
-                return false;
-            }
+            // Atoms is guaranteed non-empty due to validation above (lines 133-144).
+            debug_assert!(!atoms.is_empty(), "atoms should never be empty after validation");
             // Evaluate left-associative && groups.
             let mut group_values: Vec<bool> = Vec::new();
             let mut current_val = (atoms[0])(ex);
@@ -186,22 +188,22 @@ impl Filter {
 }
 
 /// Tokenize APL by splitting on logical operators while retaining them.
-fn tokenize_apl(apl: &str) -> Vec<String> {
+fn tokenize_apl(apl: &str) -> Vec<&str> {
     let re = Regex::new(r"\s*(?:(&&)|(\|\|))\s*").unwrap();
     let mut parts = Vec::new();
     let mut last = 0;
     for m in re.find_iter(apl) {
-        let slice = &apl[last..m.start()].trim();
+        let slice = apl[last..m.start()].trim();
         if !slice.is_empty() {
-            parts.push(slice.to_string());
+            parts.push(slice);
         }
-        let op = &apl[m.start()..m.end()].trim();
-        parts.push(op.to_string());
+        let op = apl[m.start()..m.end()].trim();
+        parts.push(op);
         last = m.end();
     }
     let tail = apl[last..].trim();
     if !tail.is_empty() {
-        parts.push(tail.to_string());
+        parts.push(tail);
     }
     parts
 }

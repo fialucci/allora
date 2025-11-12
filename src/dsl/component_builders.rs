@@ -211,9 +211,8 @@ pub fn build_filters_from_spec(spec: FiltersSpec) -> Result<Vec<Filter>> {
         let gen_id = format!("{AUTO_PREFIX}{auto_ctr}");
         auto_ctr += 1;
         used.insert(gen_id.clone());
-        let mut built_spec = f.clone();
-        built_spec.set_id(gen_id);
-        result.push(Filter::from_apl(built_spec.when())?);
+        // No need to clone and set ID, since Filter does not use it.
+        result.push(Filter::from_apl(f.when())?);
     }
     Ok(result)
 }

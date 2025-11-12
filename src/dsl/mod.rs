@@ -201,11 +201,12 @@ fn build_runtime_from_str(raw: &str, format: DslFormat) -> Result<AlloraRuntime>
     match format {
         DslFormat::Yaml => {
             let top = AlloraSpecYamlParser::parse_str(raw)?;
-            // Clone channel spec to avoid moving `top` so filters can be accessed afterwards.
-            let channels = build_channels_from_spec(top.channels_spec().clone())?;
+            let channels_spec = top.into_channels_spec();
+            let filters_spec = top.into_filters_spec();
+            let channels = build_channels_from_spec(channels_spec)?;
             let mut rt = AlloraRuntime::new(channels);
-            if let Some(fspec) = top.filters_spec() {
-                let filters = build_filters_from_spec(fspec.clone())?;
+            if let Some(fspec) = filters_spec {
+                let filters = build_filters_from_spec(fspec)?;
                 rt = rt.with_filters(filters);
             }
             Ok(rt)

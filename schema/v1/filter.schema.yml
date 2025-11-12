@@ -48,7 +48,7 @@ properties:
             header("Key") -> String | None
             exists(header("Key")) -> bool
             body.contains("text") -> bool
-          Operators: &&, ||, !, ==, !=
+          Operators: &&, ||, ==
           Example: body.contains("KEEP") && exists(header("Trace-Id"))
 
 examples:

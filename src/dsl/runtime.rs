@@ -71,9 +71,9 @@ impl AlloraRuntime {
             filters: Vec::new(),
         }
     }
-    /// Add filters to the runtime.
+    /// Sets the filters for this runtime.
     ///
-    /// Consumes the provided filters vector, replacing any existing filters.
+    /// Consumes the provided filters vector and assigns it to the runtime.
     pub fn with_filters(mut self, filters: Vec<Filter>) -> Self {
         self.filters = filters;
         self

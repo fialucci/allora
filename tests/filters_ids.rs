@@ -39,7 +39,7 @@ filters:
     let spec = FiltersSpecYamlParser::parse_str(raw).expect("parse");
     let built = build_filters_from_spec(spec).expect("build filters");
     assert_eq!(built.len(), 2);
-    // we cannot directly inspect ids from Filter runtime (not stored); rely on internal generation by absence of failure.
+
     // Indirectly test by adding a third build with additional missing ids; generation must remain deterministic within a single build call.
     let raw2 = r#"version: 1
 filters:

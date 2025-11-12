@@ -13,12 +13,21 @@
 //! # Example
 //! ```rust
 //! use allora::spec::{FilterSpec, FiltersSpec};
+//! // Builder pattern (method chaining, returns new value)
 //! let spec = FiltersSpec::new(1)
 //!     .add(FilterSpec::with_id("filt.a", "inbound.a", "body.contains(\"X\")"))
 //!     .add(FilterSpec::new("inbound.b", "header(\"Flag\") == \"on\""));
 //! assert_eq!(spec.filters().len(), 2);
 //! assert_eq!(spec.filters()[0].id(), Some("filt.a"));
 //! assert!(spec.filters()[1].id().is_none());
+//!
+//! // Mutation pattern (push, mutates in place)
+//! let mut spec2 = FiltersSpec::new(1);
+//! spec2.push(FilterSpec::with_id("filt.a", "inbound.a", "body.contains(\"X\")"));
+//! spec2.push(FilterSpec::new("inbound.b", "header(\"Flag\") == \"on\""));
+//! assert_eq!(spec2.filters().len(), 2);
+//! assert_eq!(spec2.filters()[0].id(), Some("filt.a"));
+//! assert!(spec2.filters()[1].id().is_none());
 //! ```
 //!
 
