@@ -1,5 +1,7 @@
+#[path = "common/temp.rs"]
+mod temp;
 use allora::{build_filter, Exchange, Filter, Message};
-use std::fs;
+use temp::temp_yaml;
 
 fn apply(filter: &Filter, body: &str) -> bool {
     let ex = Exchange::new(Message::from_text(body));
@@ -24,54 +26,42 @@ fn dsl_build_filter_from_file() {
 #[test]
 fn dsl_build_filter_from_str_body_contains() {
     let raw = "version: 1\nfilter:\n  from: any\n  when: body.contains(\"ABC\")";
-    let mut path = std::env::temp_dir();
-    path.push(format!("filter_body_contains_{}.yml", uuid::Uuid::new_v4()));
-    fs::write(&path, raw).unwrap();
-    let f = build_filter(&path).expect("build filter from yaml str");
+    let tmp = temp_yaml(raw);
+    let f = build_filter(tmp.path()).expect("build filter from yaml str");
     assert!(apply(&f, "XYZABC123"));
     assert!(!apply(&f, "XYZAB123"));
-    let _ = fs::remove_file(&path);
 }
 
 #[test]
 fn dsl_build_filter_from_str_header_equals() {
     let raw = "version: 1\nfilter:\n  from: any\n  when: header(\"Priority\") == \"high\"";
-    let mut path = std::env::temp_dir();
-    path.push(format!("filter_header_equals_{}.yml", uuid::Uuid::new_v4()));
-    fs::write(&path, raw).unwrap();
-    let f = build_filter(&path).expect("build filter header equals");
+    let tmp = temp_yaml(raw);
+    let f = build_filter(tmp.path()).expect("build filter header equals");
     let mut ex = Exchange::new(Message::from_text("irrelevant"));
     ex.in_msg.headers.insert("Priority".into(), "high".into());
     assert!(f.accepts(&ex));
     ex.in_msg.headers.insert("Priority".into(), "low".into());
     assert!(!f.accepts(&ex));
-    let _ = fs::remove_file(&path);
 }
 
 #[test]
 fn dsl_build_filter_from_str_exists_header() {
     let raw = "version: 1\nfilter:\n  from: any\n  when: exists(header(\"Trace-Id\"))";
-    let mut path = std::env::temp_dir();
-    path.push(format!("filter_exists_header_{}.yml", uuid::Uuid::new_v4()));
-    fs::write(&path, raw).unwrap();
-    let f = build_filter(&path).expect("build filter exists header");
+    let tmp = temp_yaml(raw);
+    let f = build_filter(tmp.path()).expect("build filter exists header");
     let mut ex = Exchange::new(Message::from_text("body"));
     assert!(!f.accepts(&ex));
     ex.in_msg.headers.insert("Trace-Id".into(), "abc".into());
     assert!(f.accepts(&ex));
-    let _ = fs::remove_file(&path);
 }
 
 #[test]
 fn dsl_build_filter_from_str_fallback_exact_body_match() {
     let raw = "version: 1\nfilter:\n  from: any\n  when: EXACT";
-    let mut path = std::env::temp_dir();
-    path.push(format!("filter_exact_body_{}.yml", uuid::Uuid::new_v4()));
-    fs::write(&path, raw).unwrap();
-    let f = build_filter(&path).expect("build filter fallback exact body");
+    let tmp = temp_yaml(raw);
+    let f = build_filter(tmp.path()).expect("build filter fallback exact body");
     assert!(apply(&f, "EXACT"));
     assert!(!apply(&f, "NOT_EXACT"));
-    let _ = fs::remove_file(&path);
 }
 
 #[test]

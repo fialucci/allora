@@ -37,6 +37,9 @@ version = "1.39"
 features = ["rt", "rt-multi-thread", "macros", "sync"]
 optional = true
 
+[dev-dependencies]
+tempfile = "3"
+
 # Remove invalid [alias]; use cargo metadata for docs only.
 [package.metadata.cargo-alias]
 # Run full test suite including HTTP feature tests: cargo test-http
