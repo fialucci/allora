@@ -88,7 +88,7 @@
 //!
 //! # Internal Helpers (Non-Public)
 //! * `build_runtime_from_str` – dispatcher from raw text + format (now aggregates filters when present)
-//! * `build_filter_from_str` / `build_filters_from_str` – kept private
+//! * `build_filter_from_str` – kept private
 //!
 //! # Roadmap
 //! * Multiple channel kinds (kafka, amqp)
@@ -103,9 +103,7 @@ use crate::{
     channel::InMemoryChannel,
     error::{Error, Result},
     patterns::filter::Filter,
-    spec::{
-        AlloraSpecYamlParser, ChannelSpecYamlParser, FilterSpecYamlParser, FiltersSpecYamlParser,
-    },
+    spec::{AlloraSpecYamlParser, ChannelSpecYamlParser, FilterSpecYamlParser},
 };
 use component_builders::{
     build_channel_from_spec, build_channels_from_spec, build_filter_from_spec,
@@ -183,17 +181,6 @@ pub fn build_filter(path: impl AsRef<Path>) -> Result<Filter> {
     let format = DslFormat::from_path(path_ref)
         .ok_or_else(|| Error::serialization("cannot infer DSL format from extension"))?;
     build_filter_from_str(&raw, format)
-}
-
-/// Build filters from raw string + format (collection form) - private helper.
-fn build_filters_from_str(raw: &str, format: DslFormat) -> Result<Vec<Filter>> {
-    match format {
-        DslFormat::Yaml => {
-            let spec = FiltersSpecYamlParser::parse_str(raw)?;
-            build_filters_from_spec(spec)
-        }
-        _ => Err(Error::serialization("filters: format not yet supported")),
-    }
 }
 
 /// Internal helper: build full runtime from raw + format.
