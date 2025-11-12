@@ -104,6 +104,19 @@ static PLAN_CACHE: OnceCell<
 fn plan_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, Arc<CompiledPlan>>> {
     PLAN_CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
+/// Obtain a guard for the global plan cache, recovering gracefully if the mutex was poisoned.
+/// Poison recovery logs a warning and returns the inner map, allowing continued operation
+/// instead of panicking inside library code.
+fn plan_cache_guard(
+) -> std::sync::MutexGuard<'static, std::collections::HashMap<String, Arc<CompiledPlan>>> {
+    match plan_cache().lock() {
+        Ok(g) => g,
+        Err(poisoned) => {
+            tracing::warn!("plan cache mutex poisoned; recovering");
+            poisoned.into_inner()
+        }
+    }
+}
 
 pub type Predicate = Box<dyn Fn(&Exchange) -> bool + Send + Sync + 'static>;
 
@@ -163,7 +176,7 @@ impl Filter {
         Self::from_apl_with_id(None, apl)
     }
     pub fn from_apl_with_id(id: Option<String>, apl: &str) -> Result<Self> {
-        if let Some(plan) = plan_cache().lock().unwrap().get(apl).cloned() {
+        if let Some(plan) = plan_cache_guard().get(apl).cloned() {
             let fid = id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
             return Ok(Self {
                 plan,
@@ -201,10 +214,7 @@ impl Filter {
             "atoms vector should not be empty after validation"
         );
         let plan = Arc::new(CompiledPlan { atoms, ops });
-        plan_cache()
-            .lock()
-            .unwrap()
-            .insert(apl.to_string(), plan.clone());
+        plan_cache_guard().insert(apl.to_string(), plan.clone());
         let fid = id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         Ok(Self {
             plan,
