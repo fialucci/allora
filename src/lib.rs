@@ -1,50 +1,51 @@
-//! Allora: Rust-native Enterprise Integration Patterns library.
+//! Allora – Integration Patterns & Message Flow Building Blocks
 //!
-//! Provides building blocks (Message, Exchange, Endpoint, Processor) and common EIP patterns
-//! (Filter, Content-Based Router, Splitter, Aggregator) for high-performance, idiomatic Rust flows.
+//! High-level, lightweight primitives for composing message-driven flows in Rust.
+//! Provides channels, messages, exchanges, simple filters/patterns, plus a facade
+//! (`Allora`) for bootstrapping a runtime from a YAML configuration file.
 //!
-//! # Installation
-//! ```toml
-//! [dependencies]
-//! allora = { version = "0.1", features = ["async", "http"] }
-//! ```
+//! # Key Concepts
+//! * Message – immutable payload + headers
+//! * Exchange – mutable processing context (in/out message, headers, correlation)
+//! * Channel – in-memory endpoint for sending/receiving `Exchange` instances
+//! * Filter (pattern) – predicate over an `Exchange`
+//! * Runtime – collection of declared channels & filters built from a spec
 //!
 //! # Features
-//! * `async` (default) – async channel ops & adapter runtimes
-//! * `http` – HTTP inbound/outbound adapters
-//! * Serde always enabled
+//! * `async` (default) – async channel operations
+//! * `http` – optional HTTP adapters
+//! * `serde` always on for (de)serialization
 //!
-//! # Quick Start
+//! # Crate Use
+//! * Programmatic: build channels/filters directly via builders
+//! * Declarative: provide `allora.yml` and use `Allora::new().run()`
+//!
+//! # Minimal Programmatic Example
 //! ```rust
-//! use allora::{patterns::filter::Filter, Exchange, Message};
-//! let mut ex = Exchange::new(Message::from_text("hello"));
-//! let filter = Filter::new(|e: &Exchange| e.in_msg.body_text() == Some("hello"));
-//! assert!(filter.accepts(&ex));
+//! use allora::{Exchange, Message, patterns::filter::Filter};
+//! let mut ex = Exchange::new(Message::from_text("ping"));
+//! let f = Filter::new(|e: &Exchange| e.in_msg.body_text() == Some("ping"));
+//! assert!(f.accepts(&ex));
 //! ```
 //!
-//! # Architecture
-//! Specs -> Parsers -> DSL -> Builders -> Runtime Patterns
-//! 1. Specs: intent (no IO)
-//! 2. Parsers: YAML -> Spec
-//! 3. DSL: unified build APIs
-//! 4. Builders: Spec -> runtime component
-//! 5. Patterns: processing primitives
-//!
-//! # Channel YAML (v1)
+//! # Minimal YAML Channel Spec
 //! ```yaml
 //! version: 1
-//! channel:
-//!   kind: in_memory
-//!   id: my-channel    # optional
+//! channels:
+//!   - kind: in_memory
+//!     id: inbound
+//!   - kind: in_memory
+//!     id: outbound
+//! ```
+//! Build from file with:
+//! ```no_run
+//! # use allora::{Allora, Channel};
+//! let rt = Allora::new().with_config_file("./allora.yml").run()?;
+//! assert!(rt.channel_by_id("inbound").is_some());
+//! # Ok::<_, allora::Error>(())
 //! ```
 //!
-//! # Mapping
-//! * Filter => patterns::filter::Filter
-//! * Content Router => patterns::content_router::ContentRouter
-//! * Splitter => patterns::splitter::Splitter
-//! * Aggregator => patterns::aggregator::Aggregator
-//!
-//! # DSL Example
+//! # Building Components Directly
 //! ```rust
 //! use allora::{build_channel_from_str, DslFormat, Channel};
 //! let raw = "version: 1\nchannel:\n  kind: in_memory\n  id: demo";
@@ -52,63 +53,19 @@
 //! assert_eq!(ch.id(), "demo");
 //! ```
 //!
+//! # Errors
+//! All builder and facade operations surface failures via `Error`.
+//! Use `Result<T, Error>` and propagate with `?`.
+//!
+//! # License
+//! MIT OR Apache-2.0.
+//!
 //! # Stability & Versioning
 //! * Parsers enforce `version`.
 //! * New versions add new parser modules.
-//!
-//! # License: MIT OR Apache-2.0
-//!
-//! # Full Runtime Build (AlloraRuntime)
-//! If you have a top-level `allora.yml` describing multiple channels and optional filters:
-//! ```yaml
-//! version: 1
-//! channels:
-//!   - kind: in_memory
-//!     id: inbound.orders
-//!   - kind: in_memory
-//!     id: processed.orders
-//! filters:
-//!   - id: filt.orders
-//!     from: inbound.orders
-//!     to: processed.orders
-//!     when: body.contains("KEEP") && exists(header("Trace-Id"))
-//! ```
-//! Build all declared components with:
-//! ```rust
-//! use allora::{build, Channel, Filter};
-//! let rt = build("tests/fixtures/allora.yml").unwrap();
-//! assert!(rt.channel_by_id("inbound.orders").is_some());
-//! assert!(rt.filters().len() >= 1);
-//! assert_eq!(rt.channel_count(), 3);
-//! ```
-//!
-//! # Programmatic vs YAML Specs
-//! You can construct specs directly:
-//! ```rust
-//! use allora::spec::ChannelSpec;
-//! let spec = ChannelSpec::in_memory().id("direct");
-//! // Then feed into builder: allora::dsl::component_builders::build_channel_from_spec(spec)
-//! ```
-//! or rely on YAML parsing via `build_channel_from_str` / `build()`.
-//!
-//! # ID Strategy
-//! * Single channel without id -> UUID (via builder)
-//! * Multi-channel (top-level build) missing ids -> deterministic `channel:auto.N`
-//! * Duplicate ids -> build-time error (`duplicate channel.id`)
-//! * Filters mirror channel strategy with `filter:auto.N` for missing ids and duplicate rejection
-//!
-//! # Roadmap (Indicative)
-//! * Additional channel kinds (kafka, amqp)
-//! * Endpoint / Adapter specs
-//! * Filter & Router DSL (expression + structured forms) – extended predicates & routing
-//! * JSON / XML format parsers
-//! * Pluggable id generation strategy
-//! * Runtime indexing optimization (hash lookups) for large deployments
-//!
-//! # Contributing
-//! Keep additions layered: Spec -> Parser -> Builder -> Facade -> Pattern. Avoid embedding parsing logic in builders.
 
 pub mod adapter; // generic inbound adapter abstractions (file adapter.rs)
+pub mod allora;
 pub mod channel;
 pub mod dsl; // new multi-format DSL facade (yaml/json/xml)
 pub mod endpoint;
@@ -117,6 +74,7 @@ pub mod error;
 pub mod http_inbound_adapter;
 #[cfg(feature = "http")]
 pub mod http_outbound_adapter;
+pub mod logging;
 pub mod message;
 pub mod patterns;
 pub mod processor;
@@ -127,6 +85,7 @@ pub mod spec; // new specification-based builders replacing DSL façade graduall
 pub use adapter::{
     ensure_correlation, Adapter, InboundAdapter, OutboundAdapter, OutboundDispatchResult,
 };
+pub use allora::Allora;
 pub use channel::{
     Channel, ChannelRef, CorrelationSupport, DefaultChannel, InMemoryChannel, OutboundQueue,
 };
