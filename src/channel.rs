@@ -160,7 +160,7 @@ pub trait CorrelationSupport: Send + Sync + Debug {
     fn await_correlation(&self, corr_id: &str, timeout: Option<Duration>) -> Option<Exchange>;
 }
 
-/// Direct, synchronous handoff channel (Spring Integration style `DirectChannel`).
+/// Direct, synchronous handoff channel.
 ///
 /// Semantics:
 /// * No internal queue / buffering – `send` immediately invokes all subscribers in registration order.
