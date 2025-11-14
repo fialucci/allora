@@ -1,0 +1,20 @@
+[package]
+name = "allora-helloworld"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+allora = { path = "../../../", features = ["async"] }
+tokio = { version = "1.39", features = ["rt", "rt-multi-thread"] }
+tracing = "0.1"
+
+[profile.dev]
+opt-level = 0          # light optimization to keep runtime reasonable
+incremental = true     # speed up successive builds
+codegen-units = 128    # higher parallelism (Cargo default is usually high)
+debug = true           # keep debug info for troubleshooting
+lto = false            # avoid LTO in dev (faster builds)
+panic = "unwind"       # keep backtraces during development
+strip = false          # retain symbols

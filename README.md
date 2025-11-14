@@ -145,9 +145,11 @@ allora = { git = "https://github.com/fialucci/allora", default-features = false 
 
 | Feature | Default | Purpose                                                  |
 |---------|---------|----------------------------------------------------------|
-| `async` | yes     | Async route & processor support (Tokio + async-trait).   |
-| `serde` | no      | (De)serialization for `Message`, `Exchange` payloads.    |
-| `http`  | no      | HTTP inbound adapter (`HttpInboundAdapter`) using Hyper. |
+| `async` | yes     | Async channel & processor support (Tokio + async-trait). |
+| `http`  | yes     | HTTP inbound adapter (feature-gated)                     |
+
+> Note: `serde` is a required dependency (always compiled in) for message/exchange (de)serialization and is not
+> controlled by a feature flag. There is currently no way to disable it via Cargo features.
 
 ## Core Concepts
 
@@ -170,11 +172,15 @@ allora = { git = "https://github.com/fialucci/allora", default-features = false 
 
 ```rust
 use allora::{Message, Exchange, route::Route, patterns::filter::Filter};
-let mut exchange = Exchange::new(Message::from_text("hello"));
-let route = Route::new()
-.add(Filter::new( | ex| ex.in_msg.body_text() == Some("hello")))
-.build();
-route.run( & mut exchange).unwrap();
+
+fn example() -> allora::Result<()> {
+    let mut exchange = Exchange::new(Message::from_text("hello"));
+    let route = Route::new()
+        .add(Filter::new(|ex| ex.in_msg.body_text() == Some("hello")))
+        .build();
+    route.run(&mut exchange)?;
+    Ok(())
+}
 ```
 
 ## Quick Start (Async)
@@ -198,43 +204,83 @@ async fn main() -> allora::Result<()> {
 
 ## Channels
 
-Current implementation: `InMemoryChannel`.
+Current implementation: a simple in-memory pipe built via a staged builder. Channels enqueue and dequeue `Exchange`
+instances; processing (filters, routes, patterns) occurs before sending or after receiving.
+
+### Sync Example (without `async` feature)
 
 ```rust
-use allora::{InMemoryChannel, Message, Exchange, route::Route, processor::ClosureProcessor, ChannelRef};
-use std::sync::Arc;
-let route = Route::new()
-.add(ClosureProcessor::new( | ex| { ex.out_msg = Some(Message::from_text("pong")); Ok(()) }))
-.build();
-let channel: ChannelRef = Arc::new(InMemoryChannel::new(route));
-let ex = Exchange::new(Message::from_text("ping"));
-let processed = channel.dispatch(ex).unwrap();
-assert_eq!(processed.out_msg.unwrap().body_text(), Some("pong"));
-```
+use allora::channel::{Channel, ChannelBuilder, OutboundQueue};
+use allora::{Exchange, Message};
 
-Async dispatch (with `async` feature): `channel.dispatch_async(ex).await?`.
-
-## HTTP Inbound Adapter (`http` feature)
-
-```rust,ignore
-use allora::{InMemoryChannel, Route, processor::ClosureProcessor, Message, HttpInboundAdapter, ChannelRef};
-use std::sync::Arc;
-#[tokio::main]
-async fn main() -> allora::Result<()> {
-    let route = Route::with_correlation(None)
-        .add(ClosureProcessor::new(|ex| {
-            ex.out_msg = Some(Message::from_text(ex.in_msg.body_text().unwrap_or("")));
-            Ok(())
-        }))
+fn example() -> allora::Result<()> {
+    let ch = ChannelBuilder::point_to_point()
+        .in_memory()
+        .id("hello_channel")
         .build();
-    let channel: ChannelRef = Arc::new(InMemoryChannel::new(route));
-    let adapter = HttpInboundAdapter::new("127.0.0.1:3000".parse().unwrap(), channel);
-    adapter.serve().await?; // or adapter.run_once().await? for single request tests
+
+    ch.send(Exchange::new(Message::from_text("Hello World!")))?;
+    let ex = ch.try_receive().expect("exchange present");
+    assert_eq!(ex.in_msg.body_text(), Some("Hello World!"));
     Ok(())
 }
 ```
 
-Adds headers: `http.method`, `http.path`, optionally `http.is_get`. Correlation ensured automatically.
+### Async Example (with `async` feature, default)
+
+```rust
+use allora::channel::{Channel, ChannelBuilder, OutboundQueue};
+use allora::{Exchange, Message};
+
+#[tokio::main]
+async fn main() -> allora::Result<()> {
+    let ch = ChannelBuilder::point_to_point()
+        .in_memory()
+        .id("hello_channel")
+        .build();
+
+    ch.send_async(Exchange::new(Message::from_text("Hello World!"))).await?;
+    let ex = ch.try_receive_async().await.expect("exchange present");
+    assert_eq!(ex.in_msg.body_text(), Some("Hello World!"));
+    Ok(())
+}
+```
+
+### Current Limitations
+
+- Only in-memory channels (no persistence / backpressure queues yet)
+- No direct route binding; application invokes routes around channel operations
+
+## HTTP Inbound Adapter (`http` feature)
+
+> **Note:** This example spawns a server that runs indefinitely. It's provided for illustration;
+> in production you'd need proper shutdown handling or run it in a background task.
+
+```rust,no_run
+use allora::{Exchange, Message};
+use allora::channel::{ChannelBuilder, Channel};
+use allora::adapter::Adapter; // inbound adapter facade
+
+#[tokio::main]
+async fn main() -> allora::Result<()> {
+    // Build a channel to receive HTTP-translated Exchanges.
+    let ch = ChannelBuilder::point_to_point().in_memory().id("http-pipe").build();
+    let adapter = Adapter::inbound()
+        .http()
+        .host("127.0.0.1")
+        .port(0)
+        .channel(std::sync::Arc::new(ch))
+        .in_only_202() // return 202 immediately; process asynchronously
+        .build();
+
+    // (InOnly202) fire-and-forget; server runs until aborted.
+    let _handle = adapter.serve();
+    // For graceful shutdown: handle.abort();
+    Ok(())
+}
+```
+
+Adds headers: `http.method`, `http.path`; correlation ensured automatically.
 
 ## Implemented Patterns
 
@@ -369,24 +415,42 @@ adapters:
 ### Equivalent (conceptual) Rust
 
 ```rust
-let route = Route::with_correlation(Some("corr"))
-.add(Filter::with_error( | ex| ex.in_msg.body_text() == Some("hello"), "not_hello"))
-.add(ContentBasedRouter::new("kind")
-.when("hi", Box::new(ClosureProcessor::new( | ex| { ex.out_msg = Some(Message::from_text("HI")); Ok(()) })))
-.when("bye", Box::new(ClosureProcessor::new( | ex| { ex.out_msg = Some(Message::from_text("BYE")); Ok(()) }))))
-.add(Aggregator::new("corr", 3))
-.add(Splitter::new( | ex| ex.in_msg.body_text()
-.map( | t| t.split_whitespace().map(Message::from_text).collect())
-.unwrap_or_else(Vec::new)))
-.build();
+use allora::{Message, route::Route, patterns::filter::Filter,
+             patterns::content_router::ContentBasedRouter,
+             patterns::aggregator::Aggregator, patterns::splitter::Splitter,
+             processor::ClosureProcessor};
+
+fn build_route() -> Route {
+    Route::with_correlation(Some("corr"))
+        .add(Filter::with_error(|ex| ex.in_msg.body_text() == Some("hello"), "not_hello"))
+        .add(ContentBasedRouter::new("kind")
+            .when("hi", Box::new(ClosureProcessor::new(|ex| {
+                ex.out_msg = Some(Message::from_text("HI"));
+                Ok(())
+            })))
+            .when("bye", Box::new(ClosureProcessor::new(|ex| {
+                ex.out_msg = Some(Message::from_text("BYE"));
+                Ok(())
+            }))))
+        .add(Aggregator::new("corr", 3))
+        .add(Splitter::new(|ex| {
+            ex.in_msg.body_text()
+                .map(|t| t.split_whitespace().map(Message::from_text).collect())
+                .unwrap_or_else(Vec::new)
+        }))
+        .build()
+}
 ```
 
 ### Planned Loader API (draft)
 
 ```rust
-// Not implemented
-let spec = std::fs::read_to_string("config/flow.yaml") ?;
-let route = allora_dsl::parse_route( & spec) ?; // returns Route
+// Not implemented yet - conceptual example
+fn load_route_from_yaml(path: &str) -> allora::Result<Route> {
+    let spec = std::fs::read_to_string(path)?;
+    let route = allora_dsl::parse_route(&spec)?; // returns Route
+    Ok(route)
+}
 ```
 
 ### Validation Ideas
@@ -545,8 +609,17 @@ Below are practical scenarios with the pattern(s) you would typically combine.
 
 ```rust
 use allora::{Message, Exchange, route::Route, patterns::aggregator::Aggregator, processor::ClosureProcessor};
-let route = Route::with_correlation(Some("corr"))
-.add(Aggregator::new("corr", 3))
-.add(ClosureProcessor::new( | ex| { if ex.out_msg.is_none() { ex.out_msg = Some(Message::from_text("complete")); } Ok(()) }))
-.build();
+
+fn example() -> allora::Result<()> {
+    let route = Route::with_correlation(Some("corr"))
+        .add(Aggregator::new("corr", 3))
+        .add(ClosureProcessor::new(|ex| {
+            if ex.out_msg.is_none() {
+                ex.out_msg = Some(Message::from_text("complete"));
+            }
+            Ok(())
+        }))
+        .build();
+    Ok(())
+}
 ```

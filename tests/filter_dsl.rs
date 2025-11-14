@@ -1,15 +1,15 @@
-#[path = "common/temp.rs"]
-mod temp;
 #[path = "common/filter.rs"]
 mod filter_helpers;
-use allora::{build_filter, Exchange, Filter, Message};
-use temp::temp_yaml;
+#[path = "common/temp.rs"]
+mod temp;
+use allora::{build_filter, Exchange, Message};
 use filter_helpers::apply;
+use temp::temp_yaml;
 
 #[test]
 fn dsl_build_filter_from_file() {
     let f = build_filter("tests/fixtures/filter.yml").expect("build filter from fixture");
-    // Without Trace-Id header should reject even if body contains KEEP
+    // Without Trace-Id header should reject even if the body contains KEEP
     assert!(!apply(&f, "A KEEP message"));
     // With header present accept
     let mut ex = Exchange::new(Message::from_text("A KEEP message"));

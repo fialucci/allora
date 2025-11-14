@@ -1,0 +1,5 @@
+# Allora HelloWorld example - single channel configuration
+version: 1
+channels:
+  - id: hello_channel
+    kind: in_memory
