@@ -1,4 +1,4 @@
-use allora::{build, Channel};
+use allora::build;
 
 #[path = "common/temp.rs"]
 mod temp;
@@ -8,15 +8,15 @@ use temp::temp_yaml;
 fn allora_spec_build_from_str_success() {
     let raw = r#"version: 1
 channels:
-  - kind: in_memory
+  - kind: direct
     id: inbound.orders
-  - kind: in_memory
+  - kind: direct
     id: processed.orders
 "#;
     let tf = temp_yaml(raw);
     let runtime = build(tf.path()).expect("build top-level allora");
     assert_eq!(runtime.channel_count(), 2);
-    let ids: Vec<&str> = runtime.channels().iter().map(|c| c.id()).collect();
+    let ids: Vec<&str> = runtime.channels().map(|c| c.id()).collect();
     assert!(ids.contains(&"inbound.orders"));
     assert!(ids.contains(&"processed.orders"));
 }

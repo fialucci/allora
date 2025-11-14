@@ -64,7 +64,7 @@
 //! refactors as new component types are added.
 
 use crate::{
-    channel::{ChannelBuilder, InMemoryChannel},
+    channel::{Channel, ChannelBuilder},
     error::{Error, Result},
     patterns::filter::Filter,
     spec::{ChannelKindSpec, ChannelSpec, ChannelsSpec, FilterSpec, FiltersSpec},
@@ -77,7 +77,7 @@ fn build_channel_spec_internal(
     spec: &ChannelSpec,
     used_ids: Option<&mut HashSet<String>>,
     auto_ctr: Option<&mut u64>,
-) -> Result<InMemoryChannel> {
+) -> Result<Box<dyn Channel>> {
     // Resolve (possibly generated) id
     let final_id: Option<String> = match (spec.channel_id(), used_ids) {
         (Some(""), _) => return Err(Error::serialization("channel.id must not be empty")),
@@ -105,13 +105,22 @@ fn build_channel_spec_internal(
     };
 
     // Match kind -> builder (future kinds centralize here)
-    let channel = match spec.kind() {
+    let channel: Box<dyn Channel> = match spec.kind() {
         ChannelKindSpec::InMemory => {
             let builder = ChannelBuilder::point_to_point().in_memory();
-            match final_id {
+            let ch = match final_id {
                 Some(id) => builder.id(id).build(),
                 None => builder.build(),
-            }
+            };
+            Box::new(ch)
+        }
+        ChannelKindSpec::Direct => {
+            let builder = ChannelBuilder::point_to_point().direct();
+            let ch = match final_id {
+                Some(id) => builder.id(id).build(),
+                None => builder.build(),
+            };
+            Box::new(ch)
         }
     };
     Ok(channel)
@@ -119,14 +128,14 @@ fn build_channel_spec_internal(
 
 /// Build a concrete channel from a validated `ChannelSpec`.
 /// Delegates to internal helper without uniqueness / auto-ID tracking (builder handles UUID auto-id).
-pub fn build_channel_from_spec(spec: ChannelSpec) -> Result<InMemoryChannel> {
+pub fn build_channel_from_spec(spec: ChannelSpec) -> Result<Box<dyn Channel>> {
     build_channel_spec_internal(&spec, None, None)
 }
 
 /// Build multiple concrete channels from a validated `ChannelsSpec`.
 /// Enforces uniqueness across provided IDs and generates deterministic auto IDs for missing ones.
-pub fn build_channels_from_spec(spec: ChannelsSpec) -> Result<Vec<InMemoryChannel>> {
-    let mut result = Vec::with_capacity(spec.channels().len());
+pub fn build_channels_from_spec(spec: ChannelsSpec) -> Result<Vec<Box<dyn Channel>>> {
+    let mut result: Vec<Box<dyn Channel>> = Vec::with_capacity(spec.channels().len());
     let mut used: HashSet<String> = HashSet::new();
     let mut auto_ctr: u64 = 1;
     for ch in spec.channels() {

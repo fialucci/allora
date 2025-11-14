@@ -100,7 +100,7 @@
 //! This documentation focuses on architecture & extensibility; see component modules for specifics.
 
 use crate::{
-    channel::InMemoryChannel,
+    channel::Channel,
     error::{Error, Result},
     patterns::filter::Filter,
     spec::{AlloraSpecYamlParser, ChannelSpecYamlParser, FilterSpecYamlParser},
@@ -140,7 +140,7 @@ impl DslFormat {
 }
 
 /// Build channel from raw string + specified format.
-pub fn build_channel_from_str(raw: &str, format: DslFormat) -> Result<InMemoryChannel> {
+pub fn build_channel_from_str(raw: &str, format: DslFormat) -> Result<Box<dyn Channel>> {
     match format {
         DslFormat::Yaml => {
             let spec = ChannelSpecYamlParser::parse_str(raw)?;
@@ -152,7 +152,7 @@ pub fn build_channel_from_str(raw: &str, format: DslFormat) -> Result<InMemoryCh
 }
 
 /// Convenience: build channel from a file path (auto-detect format via extension).
-pub fn build_channel(path: impl AsRef<Path>) -> Result<InMemoryChannel> {
+pub fn build_channel(path: impl AsRef<Path>) -> Result<Box<dyn Channel>> {
     let path_ref = path.as_ref();
     let raw =
         std::fs::read_to_string(path_ref).map_err(|e| Error::other(format!("read error: {e}")))?;

@@ -10,11 +10,11 @@ fn write_spec(dir: &Path, name: &str, body: &str) -> PathBuf {
 }
 
 fn minimal_spec() -> &'static str {
-    "version: 1\nchannels:\n  - id: c1\n    kind: in_memory\n"
+    "version: 1\nchannels:\n  - id: c1\n"
 }
 
 fn multi_spec() -> &'static str {
-    "version: 1\nchannels:\n  - id: c1\n    kind: in_memory\n  - id: c2\n    kind: in_memory\n  - id: c3\n    kind: in_memory\n"
+    "version: 1\nchannels:\n  - id: c1\n    kind: direct\n  - id: c2\n    kind: direct\n  - id: c3\n    kind: direct\n"
 }
 
 #[test]

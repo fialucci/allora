@@ -8,7 +8,8 @@
 //! * [`Channel`] – core interface (sync or async send based on `async` feature).
 //! * [`OutboundQueue`] – dequeue/receive operations (non-blocking + blocking convenience).
 //! * [`CorrelationSupport`] – helper methods for request/reply style correlation IDs.
-//! * [`InMemoryChannel`] – default in-process implementation.
+//! * [`DirectChannel`] – default direct handoff implementation (no internal queue).
+//! * [`InMemoryChannel`] – buffered queue implementation (FIFO, supports correlation & dequeue).
 //! * `ChannelBuilder` – staged builder for constructing in-memory channels.
 //!
 //! # Basic (Sync) Example
@@ -67,6 +68,7 @@ use crate::route::Route;
 use crate::{error::Result, Exchange};
 #[cfg(feature = "async")]
 use async_trait::async_trait;
+use std::any::Any;
 #[cfg(not(feature = "async"))]
 use std::collections::VecDeque;
 use std::fmt::Debug;
@@ -130,6 +132,12 @@ pub trait Channel: Send + Sync + Debug {
         let rt = Runtime::new().map_err(|e| Error::other(e.to_string()))?;
         rt.block_on(self.send_async(exchange))
     }
+    /// Implementation kind identifier (lowercase). Default "unknown" for third-party channels until overridden.
+    fn kind(&self) -> &'static str {
+        "unknown"
+    }
+    /// Downcast helper for callers needing concrete type behavior.
+    fn as_any(&self) -> &dyn Any; // object-safe downcast hook
 }
 
 /// Extension trait for channels that maintain an outbound (queued) Exchange list.
@@ -152,10 +160,128 @@ pub trait CorrelationSupport: Send + Sync + Debug {
     fn await_correlation(&self, corr_id: &str, timeout: Option<Duration>) -> Option<Exchange>;
 }
 
-/// Optional introspection for channels (implementation kind).
-pub trait ChannelInfo {
-    /// Returns a stable lowercase identifier for the channel implementation kind.
-    fn kind(&self) -> &'static str;
+/// Direct, synchronous handoff channel (Spring Integration style `DirectChannel`).
+///
+/// Semantics:
+/// * No internal queue / buffering – `send` immediately invokes all subscribers in registration order.
+/// * Temporal coupling – sender blocks until all subscribers finish (or an error short-circuits).
+/// * Error handling – first subscriber returning `Err` stops dispatch; subsequent subscribers are skipped.
+/// * Each subscriber receives a cloned `Exchange` (mutations are isolated per subscriber).
+///
+/// For decoupling / polling semantics use [`InMemoryChannel`].
+pub struct DirectChannel {
+    id: String,
+    subscribers: std::sync::Mutex<Vec<Box<dyn Fn(Exchange) -> Result<()> + Send + Sync>>>,
+}
+
+impl std::fmt::Debug for DirectChannel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let count = self.subscribers.lock().map(|v| v.len()).unwrap_or(0);
+        f.debug_struct("DirectChannel")
+            .field("id", &self.id)
+            .field("subscribers", &count)
+            .finish()
+    }
+}
+
+impl DirectChannel {
+    /// Create a new direct channel with auto-generated id `direct:<uuid>`.
+    pub fn new() -> Self {
+        Self {
+            id: format!("direct:{}", uuid::Uuid::new_v4()),
+            subscribers: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+    pub(crate) fn with_id<S: Into<String>>(id: S) -> Self {
+        Self {
+            id: id.into(),
+            subscribers: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+    /// Subscribe a closure. Returns total subscriber count after registration.
+    pub fn subscribe<F>(&self, f: F) -> usize
+    where
+        F: Fn(Exchange) -> Result<()> + Send + Sync + 'static,
+    {
+        let mut subs = self.subscribers.lock().unwrap();
+        subs.push(Box::new(f));
+        subs.len()
+    }
+    /// Internal helper: accept an already boxed subscriber (used by builder to avoid re-wrapping).
+    fn subscribe_box(&self, boxed: Box<dyn Fn(Exchange) -> Result<()> + Send + Sync>) -> usize {
+        let mut subs = self.subscribers.lock().unwrap();
+        subs.push(boxed);
+        subs.len()
+    }
+    fn dispatch(&self, exchange: Exchange, is_async: bool) -> Result<()> {
+        let subs = self.subscribers.lock().unwrap();
+        trace!(channel_id=%self.id, async=%is_async, subscribers=%subs.len(), in_body=?exchange.in_msg.body_text(), "direct dispatch start");
+        for (idx, sub) in subs.iter().enumerate() {
+            let cloned = exchange.clone();
+            trace!(channel_id=%self.id, subscriber_index=idx, async=%is_async, in_body=?cloned.in_msg.body_text(), "direct dispatch to subscriber");
+            sub(cloned)?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg_attr(feature = "async", async_trait)]
+impl Channel for DirectChannel {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    #[cfg(not(feature = "async"))]
+    fn send(&self, exchange: Exchange) -> Result<()> {
+        self.dispatch(exchange, false)
+    }
+    #[cfg(feature = "async")]
+    async fn send_async(&self, exchange: Exchange) -> Result<()> {
+        self.dispatch(exchange, true)
+    }
+    fn kind(&self) -> &'static str {
+        "direct"
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+/// Builder for DirectChannel supporting optional id and initial subscribers.
+pub struct DirectChannelBuilder {
+    id: Option<String>,
+    subscribers: Vec<Box<dyn Fn(Exchange) -> Result<()> + Send + Sync>>,
+}
+impl DirectChannelBuilder {
+    pub fn new() -> Self {
+        Self {
+            id: None,
+            subscribers: Vec::new(),
+        }
+    }
+    /// Set an explicit id for the channel (skips auto-generated `direct:<uuid>`).
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+    /// Register an initial subscriber closure to be invoked on each dispatch.
+    pub fn subscriber<F>(mut self, f: F) -> Self
+    where
+        F: Fn(Exchange) -> Result<()> + Send + Sync + 'static,
+    {
+        self.subscribers.push(Box::new(f));
+        self
+    }
+    /// Finalize the builder returning a constructed DirectChannel.
+    pub fn build(self) -> DirectChannel {
+        let ch = match self.id {
+            Some(id) => DirectChannel::with_id(id),
+            None => DirectChannel::new(),
+        };
+        for s in self.subscribers {
+            ch.subscribe_box(s);
+        }
+        ch
+    }
 }
 
 /// In-memory pipe implementation.
@@ -167,6 +293,7 @@ pub struct InMemoryChannel {
     #[cfg(feature = "async")]
     out_queue: Arc<Mutex<Vec<Exchange>>>,
     corr_seq: Arc<AtomicU64>,
+    reported_kind: &'static str, // allows distinguishing 'direct' vs 'in_memory' config
 }
 
 impl InMemoryChannel {
@@ -178,6 +305,7 @@ impl InMemoryChannel {
             #[cfg(feature = "async")]
             out_queue: Arc::new(Mutex::new(Vec::new())),
             corr_seq: Arc::new(AtomicU64::new(1)),
+            reported_kind: "in_memory",
         }
     }
     pub(crate) fn with_id<S: Into<String>>(id: S) -> Self {
@@ -188,6 +316,7 @@ impl InMemoryChannel {
             #[cfg(feature = "async")]
             out_queue: Arc::new(Mutex::new(Vec::new())),
             corr_seq: Arc::new(AtomicU64::new(1)),
+            reported_kind: "in_memory",
         }
     }
     fn next_corr_id(&self) -> String {
@@ -247,6 +376,12 @@ impl Channel for InMemoryChannel {
         log_send_enqueued(self.id(), &exchange, true, None);
         self.push_out_async(exchange).await;
         Ok(())
+    }
+    fn kind(&self) -> &'static str {
+        self.reported_kind
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -490,11 +625,10 @@ impl CorrelationSupport for InMemoryChannel {
     }
 }
 
-impl ChannelInfo for InMemoryChannel {
-    fn kind(&self) -> &'static str {
-        "in_memory"
-    }
-}
+pub type ChannelRef = Arc<dyn Channel>;
+pub type DefaultChannel = DirectChannel;
+// Transitional alias for previous default queue-based channel.
+pub type QueueChannel = InMemoryChannel;
 
 /// Staged builder root (pattern-only for now). Channels are pure pipes; builder selects kind & optional id.
 pub struct ChannelBuilder;
@@ -508,6 +642,9 @@ pub struct PointToPointStage;
 impl PointToPointStage {
     pub fn in_memory(self) -> InMemoryChannelBuilder {
         InMemoryChannelBuilder { id: None }
+    }
+    pub fn direct(self) -> DirectChannelBuilder {
+        DirectChannelBuilder::new()
     }
 }
 pub struct InMemoryChannelBuilder {
@@ -549,6 +686,3 @@ impl InMemoryChannelBuilder {
 /// ```
 #[allow(dead_code)]
 const _STAGED_BUILDER_EXAMPLE: () = ();
-
-pub type ChannelRef = Arc<dyn Channel>;
-pub type DefaultChannel = InMemoryChannel;

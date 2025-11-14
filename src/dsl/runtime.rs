@@ -46,8 +46,6 @@
 //! These will be added as additional fields with accessor methods while keeping
 //! `AlloraRuntime` construction centralized in the DSL facade.
 use crate::channel::Channel;
-// bring trait for id()
-use crate::channel::InMemoryChannel;
 use crate::patterns::filter::Filter;
 
 #[derive(Debug)]
@@ -57,7 +55,7 @@ use crate::patterns::filter::Filter;
 /// operations. Use `into_channels()` only when you need ownership transfer (e.g. embedding
 /// channels into another structure or performing manual lifecycle management).
 pub struct AlloraRuntime {
-    channels: Vec<InMemoryChannel>,
+    channels: Vec<Box<dyn Channel>>,
     filters: Vec<Filter>,
 }
 
@@ -65,7 +63,7 @@ impl AlloraRuntime {
     /// Create a new runtime instance from a vector of channels.
     ///
     /// Typically invoked internally by the DSL (`build_runtime_from_str`).
-    pub fn new(channels: Vec<InMemoryChannel>) -> Self {
+    pub fn new(channels: Vec<Box<dyn Channel>>) -> Self {
         Self {
             channels,
             filters: Vec::new(),
@@ -78,8 +76,12 @@ impl AlloraRuntime {
         self.filters = filters;
         self
     }
-    /// Borrow all channels (read-only slice).
-    pub fn channels(&self) -> &[InMemoryChannel] {
+    /// Borrow all channels as an iterator of &dyn Channel (zero allocation).
+    pub fn channels(&self) -> impl Iterator<Item = &dyn Channel> {
+        self.channels.iter().map(|c| c.as_ref())
+    }
+    /// Borrow underlying boxed channel slice (rarely needed).
+    pub fn channels_slice(&self) -> &[Box<dyn Channel>] {
         &self.channels
     }
     /// Borrow all filters (read-only slice).
@@ -87,7 +89,7 @@ impl AlloraRuntime {
         &self.filters
     }
     /// Consume the runtime, yielding owned channels.
-    pub fn into_channels(self) -> Vec<InMemoryChannel> {
+    pub fn into_channels(self) -> Vec<Box<dyn Channel>> {
         self.channels
     }
     /// Consume the runtime, yielding owned filters.
@@ -98,8 +100,44 @@ impl AlloraRuntime {
     ///
     /// Complexity: O(n). Optimizations (hash index) can be added later without
     /// changing this method's signature or semantics.
-    pub fn channel_by_id(&self, id: &str) -> Option<&InMemoryChannel> {
-        self.channels.iter().find(|c| c.id() == id)
+    pub fn channel_by_id(&self, id: &str) -> Option<&dyn Channel> {
+        self.channels
+            .iter()
+            .find(|c| c.id() == id)
+            .map(|c| c.as_ref())
+    }
+    /// Generic typed channel lookup: returns &T if a channel with `id` exists and downcasts to T.
+    pub fn channel_typed<T: Channel + 'static>(&self, id: &str) -> Option<&T> {
+        self.channels
+            .iter()
+            .find(|c| c.id() == id)
+            .and_then(|c| c.as_any().downcast_ref::<T>())
+    }
+    /// Required typed channel lookup: panics with a clear message if missing or wrong type.
+    pub fn channel_typed_or_panic<T: Channel + 'static>(&self, id: &str) -> &T {
+        for c in &self.channels {
+            if c.id() == id {
+                if let Some(t) = c.as_any().downcast_ref::<T>() {
+                    return t;
+                } else {
+                    panic!(
+                        "channel '{}' exists with kind '{}' but does not match expected type '{}'",
+                        id,
+                        c.kind(),
+                        std::any::type_name::<T>()
+                    );
+                }
+            }
+        }
+        panic!(
+            "channel '{}' not found (expected type '{}')",
+            id,
+            std::any::type_name::<T>()
+        );
+    }
+    /// Predicate: does channel id exist and is of type T?
+    pub fn channel_is<T: Channel + 'static>(&self, id: &str) -> bool {
+        self.channel_typed::<T>(id).is_some()
     }
     /// Total number of channels in this runtime.
     pub fn channel_count(&self) -> usize {

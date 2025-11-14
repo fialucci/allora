@@ -26,7 +26,6 @@
 //! # Ok::<_, allora::Error>(())
 //! ```
 use crate::{
-    channel::Channel,
     dsl::build,
     dsl::runtime::AlloraRuntime,
     error::{Error, Result},
@@ -132,13 +131,7 @@ impl Allora {
 
         let rt = build(&path)?;
         for ch in rt.channels() {
-            // TODO: channel kind is hard-coded ("in_memory"). When additional channel implementations are added,
-            // expose a kind accessor on the Channel trait or extend Channel to inherit ChannelInfo, then log dynamically.
-            debug!(
-                channel.id = ch.id(),
-                kind = "in_memory",
-                "channel registered"
-            );
+            debug!(channel.id = ch.id(), kind = ch.kind(), "channel registered");
         }
         debug!(
             channels = rt.channel_count(),

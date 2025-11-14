@@ -1,5 +1,5 @@
 use allora::dsl::component_builders::build_channel_from_spec;
-use allora::{spec::ChannelSpec, Channel, Error};
+use allora::{spec::ChannelSpec, Error};
 
 #[test]
 /// GIVEN a ChannelSpec with an explicit non-empty id
@@ -21,8 +21,8 @@ fn build_channel_from_spec_auto_id_success() {
     let id = channel.id();
     assert!(!id.is_empty(), "auto id should not be empty");
     assert!(
-        id.starts_with("channel:"),
-        "auto id should start with 'channel:' but was {id}"
+        id.starts_with("channel:") || id.starts_with("direct:"),
+        "unexpected auto id prefix {id}"
     );
 }
 

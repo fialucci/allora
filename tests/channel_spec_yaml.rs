@@ -1,5 +1,4 @@
-use allora::channel::ChannelInfo;
-use allora::{build_channel, Channel, Error};
+use allora::{build_channel, Error};
 use std::path::PathBuf;
 #[path = "common/temp.rs"]
 mod temp;
@@ -11,12 +10,12 @@ fn spec_build_channel_success() {
         r#"version: 1
 channel:
   id: success-chan
-  kind: in_memory
+  kind: direct
 "#,
     );
     let chan = build_channel(tmp.path()).expect("channel builds");
     assert_eq!(chan.id(), "success-chan");
-    assert_eq!(chan.kind(), "in_memory");
+    assert_eq!(chan.kind(), "direct");
 }
 
 #[test]
@@ -46,7 +45,7 @@ fn spec_build_invalid_yaml_parse_error() {
 fn spec_build_missing_version_error() {
     let tmp = temp_yaml(
         r#"channel:
-  kind: in_memory
+  kind: direct
   id: no-version
 "#,
     );
@@ -78,7 +77,7 @@ fn spec_build_empty_id_error() {
     let tmp = temp_yaml(
         r#"version: 1
 channel:
-  kind: in_memory
+  kind: direct
   id: ""
 "#,
     );
@@ -91,7 +90,6 @@ channel:
 
 #[test]
 fn spec_build_channel_kind_in_memory() {
-    use allora::channel::ChannelInfo;
     let tmp = temp_yaml(
         r#"version: 1
 channel:
@@ -106,12 +104,27 @@ channel:
 }
 
 #[test]
+fn spec_build_channel_kind_direct() {
+    let tmp = temp_yaml(
+        r#"version: 1
+channel:
+  kind: direct
+  id: kind-check
+"#,
+    );
+    let chan = build_channel(tmp.path()).expect("channel builds");
+    assert_eq!(chan.id(), "kind-check");
+    // Downcast not needed; kind available via Channel trait
+    assert_eq!(chan.kind(), "direct");
+}
+
+#[test]
 fn spec_build_unknown_root_property_error() {
     let tmp = temp_yaml(
         r#"version: 1
 extra: something
 channel:
-  kind: in_memory
+  kind: direct
 "#,
     );
     let err = build_channel(tmp.path()).expect_err("expected unknown root property error");
@@ -126,7 +139,7 @@ fn spec_build_unknown_channel_property_error() {
     let tmp = temp_yaml(
         r#"version: 1
 channel:
-  kind: in_memory
+  kind: direct
   extra_field: ooops
 "#,
     );
@@ -140,18 +153,16 @@ channel:
 }
 
 #[test]
-fn spec_build_missing_channel_kind_error() {
+fn spec_build_channel_kind_omitted_defaults() {
     let tmp = temp_yaml(
         r#"version: 1
 channel:
-  id: no-kind
+  id: omitted-kind
 "#,
     );
-    let err = build_channel(tmp.path()).expect_err("expected missing channel.kind error");
-    match err {
-        Error::Serialization(msg) => assert!(msg.contains("channel.kind required")),
-        _ => panic!("unexpected error variant: {err:?}"),
-    }
+    let chan = build_channel(tmp.path()).expect("channel builds");
+    assert_eq!(chan.id(), "omitted-kind");
+    assert_eq!(chan.kind(), "direct");
 }
 
 #[test]
@@ -159,7 +170,7 @@ fn spec_build_non_integer_version_error() {
     let tmp = temp_yaml(
         r#"version: "1"
 channel:
-  kind: in_memory
+  kind: direct
 "#,
     );
     let err = build_channel(tmp.path()).expect_err("expected non-integer version error");
@@ -203,7 +214,7 @@ fn spec_build_unsupported_version_error() {
     let tmp = temp_yaml(
         r#"version: 2
 channel:
-  kind: in_memory
+  kind: direct
 "#,
     );
     let err = build_channel(tmp.path()).expect_err("expected unsupported version error");
@@ -211,4 +222,18 @@ channel:
         Error::Serialization(msg) => assert!(msg.contains("unsupported version")),
         _ => panic!("unexpected error variant: {err:?}"),
     }
+}
+
+#[test]
+fn spec_build_channel_defaults_kind_direct() {
+    let tmp = temp_yaml(
+        r#"version: 1
+channel:
+  id: default-kind
+"#,
+    );
+    let chan = build_channel(tmp.path()).expect("channel builds");
+    assert_eq!(chan.id(), "default-kind");
+    // Internally still 'in_memory' variant.
+    assert_eq!(chan.kind(), "direct");
 }
