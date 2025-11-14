@@ -207,6 +207,12 @@ impl DirectChannel {
         subs.push(Box::new(f));
         subs.len()
     }
+    /// Internal helper: accept an already boxed subscriber (used by builder to avoid re-wrapping).
+    fn subscribe_box(&self, boxed: Box<dyn Fn(Exchange) -> Result<()> + Send + Sync>) -> usize {
+        let mut subs = self.subscribers.lock().unwrap();
+        subs.push(boxed);
+        subs.len()
+    }
     fn dispatch(&self, exchange: Exchange, is_async: bool) -> Result<()> {
         let subs = self.subscribers.lock().unwrap();
         trace!(channel_id=%self.id, async=%is_async, subscribers=%subs.len(), in_body=?exchange.in_msg.body_text(), "direct dispatch start");
@@ -272,7 +278,7 @@ impl DirectChannelBuilder {
             None => DirectChannel::new(),
         };
         for s in self.subscribers {
-            ch.subscribe(move |ex| s(ex));
+            ch.subscribe_box(s);
         }
         ch
     }

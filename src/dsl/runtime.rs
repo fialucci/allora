@@ -76,9 +76,13 @@ impl AlloraRuntime {
         self.filters = filters;
         self
     }
-    /// Borrow all channels (read-only slice).
-    pub fn channels(&self) -> Vec<&dyn Channel> {
-        self.channels.iter().map(|c| c.as_ref()).collect()
+    /// Borrow all channels as an iterator of &dyn Channel (zero allocation).
+    pub fn channels(&self) -> impl Iterator<Item = &dyn Channel> {
+        self.channels.iter().map(|c| c.as_ref())
+    }
+    /// Borrow underlying boxed channel slice (rarely needed).
+    pub fn channels_slice(&self) -> &[Box<dyn Channel>] {
+        &self.channels
     }
     /// Borrow all filters (read-only slice).
     pub fn filters(&self) -> &[Filter] {
@@ -111,8 +115,25 @@ impl AlloraRuntime {
     }
     /// Required typed channel lookup: panics with a clear message if missing or wrong type.
     pub fn channel_typed_or_panic<T: Channel + 'static>(&self, id: &str) -> &T {
-        self.channel_typed::<T>(id)
-            .unwrap_or_else(|| panic!("channel '{id}' not found or not of expected type"))
+        for c in &self.channels {
+            if c.id() == id {
+                if let Some(t) = c.as_any().downcast_ref::<T>() {
+                    return t;
+                } else {
+                    panic!(
+                        "channel '{}' exists with kind '{}' but does not match expected type '{}'",
+                        id,
+                        c.kind(),
+                        std::any::type_name::<T>()
+                    );
+                }
+            }
+        }
+        panic!(
+            "channel '{}' not found (expected type '{}')",
+            id,
+            std::any::type_name::<T>()
+        );
     }
     /// Predicate: does channel id exist and is of type T?
     pub fn channel_is<T: Channel + 'static>(&self, id: &str) -> bool {

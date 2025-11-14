@@ -16,7 +16,7 @@ channels:
     let tf = temp_yaml(raw);
     let runtime = build(tf.path()).expect("build top-level allora");
     assert_eq!(runtime.channel_count(), 2);
-    let ids: Vec<&str> = runtime.channels().iter().map(|c| c.id()).collect();
+    let ids: Vec<&str> = runtime.channels().map(|c| c.id()).collect();
     assert!(ids.contains(&"inbound.orders"));
     assert!(ids.contains(&"processed.orders"));
 }

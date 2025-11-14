@@ -24,7 +24,7 @@
 //! # Example
 //! ```rust
 //! use allora::spec::ChannelSpecYamlParser;
-//! let raw = "version: 1\nchannel:\n id: parser-demo";
+//! let raw = "version: 1\nchannel:\n  id: parser-demo";
 //! let spec = ChannelSpecYamlParser::parse_str(raw).unwrap();
 //! assert_eq!(spec.channel_id(), Some("parser-demo"));
 //! ```
