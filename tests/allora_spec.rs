@@ -1,4 +1,4 @@
-use allora::{build, Channel};
+use allora::build;
 
 #[path = "common/temp.rs"]
 mod temp;
@@ -8,9 +8,9 @@ use temp::temp_yaml;
 fn allora_spec_build_from_str_success() {
     let raw = r#"version: 1
 channels:
-  - kind: in_memory
+  - kind: direct
     id: inbound.orders
-  - kind: in_memory
+  - kind: direct
     id: processed.orders
 "#;
     let tf = temp_yaml(raw);

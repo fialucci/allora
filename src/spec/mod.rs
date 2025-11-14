@@ -36,7 +36,7 @@
 //! let spec = ChannelSpec::in_memory().id("prog-demo");
 //! assert_eq!(spec.channel_id(), Some("prog-demo"));
 //! // YAML parsed via facade (no need to construct spec manually)
-//! let raw = "version: 1\nchannel:\n  kind: in_memory\n  id: parsed-demo";
+//! let raw = "version: 1\nchannel:\n  kind: direct\n  id: parsed-demo";
 //! let chan = build_channel_from_str(raw, DslFormat::Yaml).unwrap();
 //! assert_eq!(chan.id(), "parsed-demo");
 //! ```

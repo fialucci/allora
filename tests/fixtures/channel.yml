@@ -1,4 +1,4 @@
 version: 1
 channel:
-  kind: in_memory
+  kind: direct
   id: test-channel

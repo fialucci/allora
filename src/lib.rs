@@ -32,9 +32,9 @@
 //! ```yaml
 //! version: 1
 //! channels:
-//!   - kind: in_memory
+//!   - kind: direct
 //!     id: inbound
-//!   - kind: in_memory
+//!   - kind: direct
 //!     id: outbound
 //! ```
 //! Build from file with:
@@ -48,7 +48,7 @@
 //! # Building Components Directly
 //! ```rust
 //! use allora::{build_channel_from_str, DslFormat, Channel};
-//! let raw = "version: 1\nchannel:\n  kind: in_memory\n  id: demo";
+//! let raw = "version: 1\nchannel:\n  kind: direct\n  id: demo";
 //! let ch = build_channel_from_str(raw, DslFormat::Yaml).unwrap();
 //! assert_eq!(ch.id(), "demo");
 //! ```
@@ -87,7 +87,8 @@ pub use adapter::{
 };
 pub use allora::Allora;
 pub use channel::{
-    Channel, ChannelRef, CorrelationSupport, DefaultChannel, InMemoryChannel, OutboundQueue,
+    Channel, ChannelBuilder, ChannelRef, CorrelationSupport, DefaultChannel,
+    DirectChannel, DirectChannelBuilder, InMemoryChannel, OutboundQueue,
 };
 pub use dsl::runtime::AlloraRuntime;
 pub use dsl::{build, build_channel, build_channel_from_str, build_filter, DslFormat};

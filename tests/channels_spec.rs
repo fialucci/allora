@@ -1,16 +1,15 @@
 use allora::dsl::component_builders::build_channels_from_spec;
 use allora::spec::ChannelsSpecYamlParser;
-use allora::Channel;
 
 #[test]
 fn channels_spec_yaml_parse_and_build_success() {
     let raw = r#"version: 1
 channels:
-  - kind: in_memory
+  - kind: direct
     id: inbound.orders
-  - kind: in_memory
+  - kind: direct
     id: processed.orders
-  - kind: in_memory
+  - kind: direct
     id: error.deadletter
 "#;
     let spec = ChannelsSpecYamlParser::parse_str(raw).expect("parse channels spec");
@@ -52,7 +51,7 @@ channels:
 fn channels_spec_yaml_empty_id_error() {
     let raw = r#"version: 1
 channels:
-  - kind: in_memory
+  - kind: direct
     id: ""
 "#;
     let err = ChannelsSpecYamlParser::parse_str(raw).expect_err("expected empty id error");
@@ -66,9 +65,9 @@ channels:
 fn channels_spec_duplicate_id_error() {
     let raw = r#"version: 1
 channels:
-  - kind: in_memory
+  - kind: direct
     id: dup
-  - kind: in_memory
+  - kind: direct
     id: dup
 "#;
     let spec = ChannelsSpecYamlParser::parse_str(raw).expect("parse spec even with dups");

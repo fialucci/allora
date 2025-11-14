@@ -1,6 +1,5 @@
 use allora::dsl::component_builders::build_channels_from_spec;
 use allora::spec::ChannelsSpecYamlParser;
-use allora::Channel;
 use std::collections::HashSet;
 
 #[test]
@@ -33,11 +32,11 @@ fn channels_fixture_no_behavior_checks_only_creation() {
 fn channels_missing_ids_are_auto_generated_and_unique() {
     let raw = r#"version: 1
 channels:
-  - kind: in_memory
+  - kind: direct
     id: provided.one
-  - kind: in_memory
-  - kind: in_memory
-  - kind: in_memory
+  - kind: direct
+  - kind: direct
+  - kind: direct
 "#;
     let spec = ChannelsSpecYamlParser::parse_str(raw).expect("parse mixed id spec");
     let channels = build_channels_from_spec(spec).expect("build channels with auto IDs");
@@ -79,9 +78,9 @@ channels:
 fn channels_duplicate_id_error_via_builder() {
     let raw = r#"version: 1
 channels:
-  - kind: in_memory
+  - kind: direct
     id: dup
-  - kind: in_memory
+  - kind: direct
     id: dup
 "#;
     let spec = ChannelsSpecYamlParser::parse_str(raw).expect("parse duplicate id spec");

@@ -11,7 +11,7 @@
 //! ```yaml
 //! version: 1
 //! channel:
-//!   kind: in_memory   # required, enum
+//!   kind: direct   # optional (defaults to direct if omitted)
 //!   id: my-channel    # optional
 //! ```
 //!
@@ -23,8 +23,8 @@
 //!
 //! # Example
 //! ```rust
-//! use allora::spec::{ChannelSpecYamlParser, ChannelSpec};
-//! let raw = "version: 1\nchannel:\n  kind: in_memory\n  id: parser-demo";
+//! use allora::spec::ChannelSpecYamlParser;
+//! let raw = "version: 1\nchannel:\n id: parser-demo";
 //! let spec = ChannelSpecYamlParser::parse_str(raw).unwrap();
 //! assert_eq!(spec.channel_id(), Some("parser-demo"));
 //! ```
@@ -80,9 +80,6 @@ impl ChannelSpecYamlParser {
                 }
             }
         }
-        if channel.get("kind").is_none() {
-            return Err(Error::serialization("channel.kind required"));
-        }
         Ok(())
     }
     /// Parse an already loaded YAML Value into a ChannelSpec.
@@ -106,17 +103,17 @@ impl ChannelSpecYamlParser {
         if !channel.is_mapping() {
             return Err(Error::serialization("'channel' must be a mapping"));
         }
-        let kind = channel
-            .get("kind")
-            .ok_or_else(|| Error::serialization("channel.kind required"))?;
-        let kind_str = kind
-            .as_str()
-            .ok_or_else(|| Error::serialization("channel.kind must be string"))?;
-        if kind_str != "in_memory" {
-            return Err(Error::serialization(format!(
-                "unsupported channel.kind '{kind_str}'"
-            )));
-        }
+        let kind_spec = if let Some(kind) = channel.get("kind") {
+            let kind_str = kind.as_str().ok_or_else(|| Error::serialization("channel.kind must be string"))?;
+            match kind_str {
+                "direct" => ChannelKindSpec::Direct,
+                "in_memory" => ChannelKindSpec::InMemory,
+                other => return Err(Error::serialization(format!("unsupported channel.kind '{other}'"))),
+            }
+        } else {
+            tracing::info!("channel.kind missing; defaulting to 'direct'");
+            ChannelKindSpec::Direct
+        };
         let id_opt = channel
             .get("id")
             .and_then(|v| v.as_str())
@@ -128,7 +125,7 @@ impl ChannelSpecYamlParser {
         }
         Ok(ChannelSpec {
             id: id_opt,
-            kind: ChannelKindSpec::InMemory,
+            kind: kind_spec,
         })
     }
     /// Convenience: parse raw YAML string directly (one-shot). Suitable for tests or embedding.
@@ -138,11 +135,3 @@ impl ChannelSpecYamlParser {
         Self::parse_value(&val)
     }
 }
-
-#[deprecated(note = "Use ChannelSpecYamlParser::parse_value or parse_str")]
-pub fn build_channel_from_yaml(yaml: &YamlValue) -> Result<ChannelSpec> {
-    ChannelSpecYamlParser::parse_value(yaml)
-}
-
-#[deprecated(note = "Use ChannelSpecYamlParser instead of DslChannelSpecYamlBuilder")]
-pub type DslChannelSpecYamlBuilder = ChannelSpecYamlParser;

@@ -1,5 +1,5 @@
 # Channel message flow only (send/receive operations)
-filter: allora::channel=trace
+filter: trace
 ansi: true
 format:
   with_timestamp: false

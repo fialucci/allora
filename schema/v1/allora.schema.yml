@@ -29,11 +29,11 @@ properties:
 examples:
   - version: 1
     channels:
-      - kind: in_memory
+      - kind: direct
         id: inbound.orders
-      - kind: in_memory
+      - kind: direct
         id: processed.orders
-      - kind: in_memory
+      - kind: direct
         id: error.deadletter
     filters:
       - id: filt.orders

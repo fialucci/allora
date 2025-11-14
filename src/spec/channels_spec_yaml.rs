@@ -20,7 +20,7 @@
 //! ```yaml
 //! version: 1
 //! channels:
-//!   - kind: in_memory
+//!   - kind: direct
 //!     id: optional-string
 //! ```
 //!
@@ -54,17 +54,23 @@ impl ChannelsSpecYamlParser {
             if !item.is_mapping() {
                 return Err(Error::serialization("channel entry must be a mapping"));
             }
-            let kind_val = item
-                .get("kind")
-                .ok_or_else(|| Error::serialization("channel.kind required"))?;
-            let kind_str = kind_val
-                .as_str()
-                .ok_or_else(|| Error::serialization("channel.kind must be string"))?;
-            if kind_str != "in_memory" {
-                return Err(Error::serialization(format!(
-                    "unsupported channel.kind '{kind_str}'"
-                )));
-            }
+            let kind_spec = if let Some(kind_val) = item.get("kind") {
+                let kind_str = kind_val
+                    .as_str()
+                    .ok_or_else(|| Error::serialization("channel.kind must be string"))?;
+                match kind_str {
+                    "direct" => ChannelKindSpec::Direct,
+                    "in_memory" => ChannelKindSpec::InMemory,
+                    other => {
+                        return Err(Error::serialization(format!(
+                            "unsupported channel.kind '{other}'"
+                        )))
+                    }
+                }
+            } else {
+                tracing::info!("channel.kind missing in entry; defaulting to 'direct'");
+                ChannelKindSpec::Direct
+            };
             let id_opt = item
                 .get("id")
                 .and_then(|v| v.as_str())
@@ -76,7 +82,7 @@ impl ChannelsSpecYamlParser {
             }
             spec.push(ChannelSpec {
                 id: id_opt,
-                kind: ChannelKindSpec::InMemory,
+                kind: kind_spec,
             });
         }
         Ok(spec)

@@ -19,7 +19,7 @@ properties:
     type: object
     additionalProperties: false
     required: [ kind ]
-    default: { kind: in_memory }  # if 'channel' missing entirely
+    default: { kind: direct }  # if 'channel' missing entirely
     properties:
       kind:
         type: string
