@@ -9,7 +9,7 @@
 //! * `correlation_initializer` – Ensure a `correlation_id` (and optional mirror header) early in a route.
 //!
 //! # Design Notes
-//! Patterns follow Camel / Spring Integration semantics but are adapted to idiomatic Rust:
+//! Patterns follow Enterprise Integration Pattern semantics adapted to idiomatic Rust:
 //! * Traits (`Processor`, `SyncProcessor`) keep implementations lightweight.
 //! * Correlation handled lazily; use `CorrelationInitializer` or call `Exchange::correlation_id()`.
 //! * Each pattern lives in its own module with focused responsibilities.

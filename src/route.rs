@@ -13,8 +13,7 @@ use crate::{error::Result, processor::Processor, Exchange};
 ///
 /// # When to Use
 /// Use a `Route` anytime you need to compose a series of message transformations / routing logic.
-/// It mirrors concepts from EIP frameworks (Camel, Spring Integration) where a route is an
-/// assembly of steps.
+/// It mirrors concepts from EIP frameworks where a route is an assembly of steps.
 ///
 /// # Correlation & Message IDs
 /// If your processors rely on correlation IDs (e.g. aggregation), have an early processor call
