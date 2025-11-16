@@ -22,16 +22,16 @@
 //! ```
 //! use allora::{patterns::splitter::Splitter, route::Route, Message, Exchange};
 //! use allora::message::Payload;
-//! let splitter = Splitter::new(|ex: &Exchange| {
-//!     ex.in_msg.body_text()
+//! let splitter = Splitter::new(|exchange: &Exchange| {
+//!     exchange.in_msg.body_text()
 //!         .map(|t| t.split_whitespace().map(|w| Message::from_text(w)).collect())
 //!         .unwrap_or_else(Vec::new)
 //! });
 //! let route = Route::new().add(splitter).build();
-//! let mut ex = Exchange::new(Message::from_text("one two three"));
-//! #[cfg(feature="async")] tokio::runtime::Runtime::new().unwrap().block_on(async { route.run(&mut ex).await.unwrap(); });
-//! #[cfg(not(feature="async"))] route.run(&mut ex).unwrap();
-//! assert_eq!(ex.out_msg.unwrap().body_text(), Some("one"));
+//! let mut exchange = Exchange::new(Message::from_text("one two three"));
+//! #[cfg(feature = "async")] tokio::runtime::Runtime::new().unwrap().block_on(async { route.run(&mut exchange).await.unwrap(); });
+//! #[cfg(not(feature = "async"))] route.run(&mut exchange).unwrap();
+//! assert_eq!(exchange.out_msg.unwrap().body_text(), Some("one"));
 //! ```
 //!
 //! # Edge Cases
@@ -58,14 +58,18 @@ impl<F> Debug for Splitter<F>
 where
     F: Fn(&Exchange) -> Vec<Message> + Send + Sync + 'static,
 {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult { f.write_str("Splitter{func=*closure*}") }
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        f.write_str("Splitter{func=*closure*}")
+    }
 }
 
 impl<F> Splitter<F>
 where
     F: Fn(&Exchange) -> Vec<Message> + Send + Sync + 'static,
 {
-    pub fn new(func: F) -> Self { Self { func } }
+    pub fn new(func: F) -> Self {
+        Self { func }
+    }
 }
 
 impl<F> SyncProcessor for Splitter<F>
@@ -74,7 +78,9 @@ where
 {
     fn process_sync(&self, exchange: &mut Exchange) -> Result<()> {
         let messages = (self.func)(exchange);
-        if messages.is_empty() { return Ok(()); }
+        if messages.is_empty() {
+            return Ok(());
+        }
         // store first message as out_msg for demonstration
         exchange.out_msg = Some(messages[0].clone());
         Ok(())

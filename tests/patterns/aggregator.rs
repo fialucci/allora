@@ -1,14 +1,14 @@
 use allora::{patterns::aggregator::Aggregator, route::Route, Exchange, Message, Payload};
 
 #[cfg(feature = "async")]
-fn run_route_async(route: &Route, ex: &mut Exchange) -> allora::Result<()> {
+fn run_route_async(route: &Route, exchange: &mut Exchange) -> allora::Result<()> {
     tokio::runtime::Runtime::new()
         .unwrap()
-        .block_on(route.run(ex))
+        .block_on(route.run(exchange))
 }
 #[cfg(not(feature = "async"))]
-fn run_route_async(route: &Route, ex: &mut Exchange) -> allora::Result<()> {
-    route.run(ex)
+fn run_route_async(route: &Route, exchange: &mut Exchange) -> allora::Result<()> {
+    route.run(exchange)
 }
 
 #[test]
@@ -18,13 +18,13 @@ fn aggregates_three_messages() {
 
     let mut last = None;
     for i in ["A", "B", "C"] {
-        let mut ex = Exchange::new(Message::from_text(i));
-        ex.in_msg.set_header("corr", "123");
-        let res = route.run(&mut ex);
+        let mut exchange = Exchange::new(Message::from_text(i));
+        exchange.in_msg.set_header("corr", "123");
+        let res = route.run(&mut exchange);
         #[cfg(feature = "async")]
         let res = tokio::runtime::Runtime::new().unwrap().block_on(res);
         assert!(res.is_ok());
-        last = Some(ex);
+        last = Some(exchange);
     }
 
     let out = last
@@ -39,13 +39,13 @@ fn ignores_messages_without_correlation_header() {
     let agg = Aggregator::new("corr", 2);
     let route = Route::new().add(agg).build();
     for i in ["A", "B"] {
-        let mut ex = Exchange::new(Message::from_text(i));
-        let res = route.run(&mut ex);
+        let mut exchange = Exchange::new(Message::from_text(i));
+        let res = route.run(&mut exchange);
         #[cfg(feature = "async")]
         let res = tokio::runtime::Runtime::new().unwrap().block_on(res);
         assert!(res.is_ok());
         // Should never aggregate because header missing
-        assert!(ex.out_msg.is_none());
+        assert!(exchange.out_msg.is_none());
     }
 }
 

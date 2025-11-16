@@ -23,16 +23,16 @@ use crate::{error::Result, processor::Processor, Exchange};
 /// # Examples
 /// Unified example working in both sync and async modes:
 /// ```
-/// use allora::{route::Route, processor::ClosureProcessor, Message, Exchange};
+/// use allora::{processor::ClosureProcessor, route::Route, Exchange, Message};
 /// let route = Route::new()
-///     .add(ClosureProcessor::new(|ex| { ex.out_msg = Some(Message::from_text("done")); Ok(()) }))
+///     .add(ClosureProcessor::new(|exchange| { exchange.out_msg = Some(Message::from_text("done")); Ok(()) }))
 ///     .build();
-/// let mut ex = Exchange::new(Message::from_text("hi"));
-/// #[cfg(feature="async")]
-/// tokio::runtime::Runtime::new().unwrap().block_on(async { route.run(&mut ex).await.unwrap(); });
-/// #[cfg(not(feature="async"))]
-/// route.run(&mut ex).unwrap();
-/// assert_eq!(ex.out_msg.unwrap().body_text(), Some("done"));
+/// let mut exchange = Exchange::new(Message::from_text("hi"));
+/// #[cfg(feature = "async")]
+/// tokio::runtime::Runtime::new().unwrap().block_on(async { route.run(&mut exchange).await.unwrap(); });
+/// #[cfg(not(feature = "async"))]
+/// route.run(&mut exchange).unwrap();
+/// assert_eq!(exchange.out_msg.unwrap().body_text(), Some("done"));
 /// ```
 ///
 /// # Error Handling
@@ -73,11 +73,11 @@ impl Route {
     /// ```
     /// use allora::{route::Route, processor::ClosureProcessor, Message, Exchange};
     /// let route = Route::with_correlation(None)
-    ///     .add(ClosureProcessor::new(|ex| { ex.out_msg = Some(Message::from_text("pong")); Ok(()) }))
+    ///     .add(ClosureProcessor::new(|exchange| { exchange.out_msg = Some(Message::from_text("pong")); Ok(()) }))
     ///     .build();
-    /// let mut ex = Exchange::new(Message::from_text("ping"));
-    /// tokio::runtime::Runtime::new().unwrap().block_on(async { route.run(&mut ex).await.unwrap(); });
-    /// assert!(ex.in_msg.header("correlation_id").is_some());
+    /// let mut exchange = Exchange::new(Message::from_text("ping"));
+    /// tokio::runtime::Runtime::new().unwrap().block_on(async { route.run(&mut exchange).await.unwrap(); });
+    /// assert!(exchange.in_msg.header("correlation_id").is_some());
     /// ```
     pub fn with_correlation(mirror_header: Option<&str>) -> Self {
         use crate::patterns::correlation_initializer::CorrelationInitializer;

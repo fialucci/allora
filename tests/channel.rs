@@ -15,11 +15,11 @@ async fn channel_preserves_inbound_message_identity() {
     let channel = ChannelBuilder::point_to_point().in_memory().build();
     let original = Message::from_text("inbound-identity");
     let original_id = original.header("message_id").unwrap().to_string();
-    let ex = Exchange::new(original.clone());
+    let exchange = Exchange::new(original.clone());
     #[cfg(feature = "async")]
-    channel.send_async(ex).await.unwrap();
+    channel.send_async(exchange).await.unwrap();
     #[cfg(not(feature = "async"))]
-    channel.send(ex).unwrap();
+    channel.send(exchange).unwrap();
     #[cfg(feature = "async")]
     let received = channel.try_receive_async().await.expect("received");
     #[cfg(not(feature = "async"))]
@@ -44,12 +44,12 @@ async fn channel_preserves_inbound_message_identity() {
 #[cfg_attr(not(feature = "async"), test)]
 async fn channel_retains_outbound_message() {
     let channel = ChannelBuilder::point_to_point().in_memory().build();
-    let mut ex = Exchange::new(Message::from_text("input"));
-    ex.out_msg = Some(Message::from_text("processed"));
+    let mut exchange = Exchange::new(Message::from_text("input"));
+    exchange.out_msg = Some(Message::from_text("processed"));
     #[cfg(feature = "async")]
-    channel.send_async(ex.clone()).await.unwrap();
+    channel.send_async(exchange.clone()).await.unwrap();
     #[cfg(not(feature = "async"))]
-    channel.send(ex.clone()).unwrap();
+    channel.send(exchange.clone()).unwrap();
     #[cfg(feature = "async")]
     let stored = channel.try_receive_async().await.expect("queued exchange");
     #[cfg(not(feature = "async"))]
@@ -68,21 +68,21 @@ async fn channel_preserves_fifo_order() {
     let channel = ChannelBuilder::point_to_point().in_memory().build();
     for i in 0..4 {
         // 4 messages to strengthen ordering guarantee
-        let mut ex = Exchange::new(Message::from_text(format!("in-{i}")));
-        ex.out_msg = Some(Message::from_text(format!("out-{i}")));
+        let mut exchange = Exchange::new(Message::from_text(format!("in-{i}")));
+        exchange.out_msg = Some(Message::from_text(format!("out-{i}")));
         #[cfg(feature = "async")]
-        channel.send_async(ex).await.unwrap();
+        channel.send_async(exchange).await.unwrap();
         #[cfg(not(feature = "async"))]
-        channel.send(ex).unwrap();
+        channel.send(exchange).unwrap();
     }
     let mut collected = Vec::new();
     #[cfg(feature = "async")]
-    while let Some(ex) = channel.try_receive_async().await {
-        collected.push(ex);
+    while let Some(exchange) = channel.try_receive_async().await {
+        collected.push(exchange);
     }
     #[cfg(not(feature = "async"))]
-    while let Some(ex) = channel.try_receive() {
-        collected.push(ex);
+    while let Some(exchange) = channel.try_receive() {
+        collected.push(exchange);
     }
     assert_eq!(collected.len(), 4);
     for i in 0..4 {
@@ -142,8 +142,8 @@ async fn channel_correlation_ids_distinct() {
         channel.send_async(ex1).await.unwrap();
         channel.send_async(ex2).await.unwrap();
         let mut drained = Vec::new();
-        while let Some(ex) = channel.try_receive_async().await {
-            drained.push(ex);
+        while let Some(exchange) = channel.try_receive_async().await {
+            drained.push(exchange);
         }
         assert_eq!(drained.len(), 2);
         let bodies: Vec<_> = drained

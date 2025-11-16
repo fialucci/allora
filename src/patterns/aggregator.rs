@@ -24,17 +24,17 @@
 //! // First message (group not complete yet)
 //! let mut ex1 = Exchange::new(Message::from_text("A"));
 //! ex1.in_msg.set_header("corr", "grp");
-//! #[cfg(feature="async")]
+//! #[cfg(feature = "async")]
 //! tokio::runtime::Runtime::new().unwrap().block_on(async { route.run(&mut ex1).await.unwrap(); });
-//! #[cfg(not(feature="async"))]
+//! #[cfg(not(feature = "async"))]
 //! route.run(&mut ex1).unwrap();
 //! assert!(ex1.out_msg.is_none());
 //! // Second message completes group => out_msg becomes "AB"
 //! let mut ex2 = Exchange::new(Message::from_text("B"));
 //! ex2.in_msg.set_header("corr", "grp");
-//! #[cfg(feature="async")]
+//! #[cfg(feature = "async")]
 //! tokio::runtime::Runtime::new().unwrap().block_on(async { route.run(&mut ex2).await.unwrap(); });
-//! #[cfg(not(feature="async"))]
+//! #[cfg(not(feature = "async"))]
 //! route.run(&mut ex2).unwrap();
 //! assert_eq!(ex2.out_msg.unwrap().body_text(), Some("AB"));
 //! ```

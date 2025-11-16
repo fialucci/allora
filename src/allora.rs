@@ -25,13 +25,81 @@
 //! let rt = Allora::new().with_config_file("examples/basic/helloworld/allora.yml").run()?;
 //! # Ok::<_, allora::Error>(())
 //! ```
+//!
+//! # Service Wiring & The `#[service]` Macro
+//! Services are described in configuration (YAML) under `service-activator:` blocks using a `ref-name` field.
+//! Example YAML fragment:
+//! ```yaml
+//! version: 1
+//! service-activators:
+//!   - ref-name: hello_world
+//!     from: inbound.orders
+//!     to: vetted.orders
+//! ```
+//! At runtime, wiring matches each `ref-name` value against inventory descriptors submitted via
+//! the `#[service]` attribute macro. The macro registers a constructor closure that builds a
+//! single shared instance (singleton) of your type via its zero-arg `new()` and exposes it through
+//! a `SyncProcessor` wrapper calling your `Service` trait implementation.
+//!
+//! ## Using `#[service]`
+//! Apply the attribute to an inherent `impl` block that contains a zero-arg `new()` method.
+//! If `name` is omitted the concrete type name (with spaces removed) is used.
+//!
+//! Supported forms:
+//! * `#[service]` – implicit name = type name
+//! * `#[service(name = "custom")]` – explicit reference name matching YAML `ref-name`
+//!
+//! Example:
+//! ```ignore
+//! use allora::{service, Service, Exchange, error::Result};
+//! #[derive(Debug)]
+//! struct Uppercase;
+//! impl Uppercase { pub fn new() -> Self { Self } }
+//! #[service(name="uppercase")]
+//! impl Uppercase {}
+//! #[cfg_attr(feature = "async", async_trait::async_trait)]
+//! impl Service for Uppercase {
+//!     #[cfg(feature = "async")]
+//!     async fn process(&self, exchange: &mut Exchange) -> Result<()> {
+//!         if let Some(body) = exchange.in_msg.body_text() { exchange.in_msg.set_body_text(body.to_uppercase()); }
+//!         Ok(())
+//!     }
+//!     #[cfg(not(feature = "async"))]
+//!     fn process(&self, exchange: &mut Exchange) -> Result<()> {
+//!         if let Some(body) = exchange.in_msg.body_text() { exchange.in_msg.set_body_text(body.to_uppercase()); }
+//!         Ok(())
+//!     }
+//! }
+//! ```
+//!
+//! # Descriptor Wiring Criteria
+//! A service is wired only if:
+//! 1. Its `ref-name` matches a registered descriptor `name`.
+//! 2. Both `from` and `to` channel IDs exist in the runtime.
+//! 3. The inbound channel is currently a direct channel (other kinds may be supported later).
+//!
+//! # Logging Fields
+//! Structured fields emitted during build:
+//! * `config.path` / `config.canonical` – discovery details
+//! * `service_activator.ref_name`, `inbound`, `outbound` – wiring decisions
+//! * `wired.count` – number of services wired
+//! * `channel.id`, `kind` – registered channels
+//! * `descriptor.impl` (legacy field name in traces) now maps to descriptor `name`.
+//!
+//! # Testing Notes
+//! * For async feature tests invoking `process_sync`, wrap calls in a Tokio runtime.
+//! * Macro UI tests (see `tests/macro/`) validate diagnostics & naming.
+//! * Removed per-call behavior: all services share a single instance; stateful types must manage internal mutability safely.
 use crate::{
+    all_service_descriptors,
+    channel::Channel,
     dsl::build,
     dsl::runtime::AlloraRuntime,
     error::{Error, Result},
 };
 use std::path::{Path, PathBuf};
-use tracing::{debug, info};
+use std::sync::Arc;
+use tracing::{debug, info, trace};
 
 /// Maximum depth to search parent directories when auto-discovering configuration.
 /// Prevents infinite loops and excessive filesystem traversal in pathological cases
@@ -130,9 +198,136 @@ impl Allora {
         }
 
         let rt = build(&path)?;
+        let descriptors = all_service_descriptors();
+        debug!(
+            service_activator.processors = rt.service_processor_count(),
+            descriptors = descriptors.len(),
+            "service wiring start"
+        );
+        for d in &descriptors {
+            trace!(descriptor.impl = d.name, "service descriptor loaded");
+        }
+        let mut service_activator_wirings: Vec<(
+            Arc<dyn Channel>,
+            Arc<dyn Channel>,
+            Arc<dyn crate::SyncProcessor>,
+            String,
+        )> = Vec::new();
+        for sp in rt.service_activator_processors().iter() {
+            let name_key = sp.ref_name();
+            trace!(
+                service_activator.ref_name = name_key,
+                service.id = sp.id(),
+                from = sp.from(),
+                to = sp.to(),
+                "evaluating service processor"
+            );
+            for desc in descriptors.iter() {
+                if desc.name == name_key {
+                    trace!(service_activator.ref_name = name_key, "descriptor matched");
+                    if rt.channel_by_id(sp.from()).is_some() && rt.channel_by_id(sp.to()).is_some()
+                    {
+                        let inbound_arc_opt =
+                            rt.channels_slice().iter().find(|c| c.id() == sp.from());
+                        let outbound_arc_opt =
+                            rt.channels_slice().iter().find(|c| c.id() == sp.to());
+                        if let (Some(in_arc), Some(out_arc)) = (inbound_arc_opt, outbound_arc_opt) {
+                            debug!(
+                                service_activator.ref_name = name_key,
+                                inbound = sp.from(),
+                                outbound = sp.to(),
+                                "channels resolved – scheduling wiring"
+                            );
+                            let proc_arc = (desc.constructor)();
+                            service_activator_wirings.push((
+                                in_arc.clone(),
+                                out_arc.clone(),
+                                proc_arc,
+                                name_key.to_string(),
+                            ));
+                        } else {
+                            debug!(
+                                service_activator.ref_name = name_key,
+                                inbound_found = inbound_arc_opt.is_some(),
+                                outbound_found = outbound_arc_opt.is_some(),
+                                "channel resolution failed – wiring skipped"
+                            );
+                        }
+                    } else {
+                        debug!(
+                            service_activator.ref_name = name_key,
+                            "channel ids not found – skipped"
+                        );
+                    }
+                }
+            }
+        }
+        if service_activator_wirings.is_empty() {
+            info!("no services wired (none matched or channels missing)");
+        } else {
+            info!(
+                wired.count = service_activator_wirings.len(),
+                "service wiring collected"
+            );
+        }
+        // Perform subscriptions after collecting arcs
+        for (in_arc, out_arc, proc_arc, name_key) in service_activator_wirings.into_iter() {
+            // Downcast inbound once for subscription
+            if let Some(inbound_direct) = in_arc.as_any().downcast_ref::<crate::DirectChannel>() {
+                let outbound_arc_dyn = out_arc.clone();
+                let inbound_id = inbound_direct.id().to_string();
+                let inbound_id_closure = inbound_id.clone();
+                let name_key_closure = name_key.clone();
+                let proc_shared = proc_arc.clone();
+                let sub_count = inbound_direct.subscribe(move |exchange| {
+                    trace!(service_activator.ref_name = name_key_closure, inbound = inbound_id_closure, in_body = ?exchange.in_msg.body_text(), "dispatch -> service start");
+                    #[cfg(feature = "async")]
+                    {
+                        use tokio::runtime::Handle;
+                        // Execute processor and outbound send synchronously within block_in_place to avoid spawning & needing sleeps.
+                        tokio::task::block_in_place(|| {
+                            let mut ex_mut = exchange;
+                            if let Err(err) = proc_shared.process_sync(&mut ex_mut) {
+                                tracing::error!(target="allora::service", service.impl=name_key_closure, error=%err, "Service processor returned error during synchronous processing");
+                                return Err(err);
+                            }
+                            trace!(service_activator.ref_name = name_key_closure, mode="async", outbound = outbound_arc_dyn.id(), out_body=?ex_mut.in_msg.body_text(), "service processed – forwarding");
+                            Handle::current().block_on(async { outbound_arc_dyn.send_async(ex_mut).await })?;
+                            trace!(service_activator.ref_name = name_key_closure, mode="async", outbound = outbound_arc_dyn.id(), "exchange forwarded");
+                            Ok(())
+                        })?;
+                    }
+                    #[cfg(not(feature = "async"))]
+                    {
+                        let mut ex_mut = exchange;
+                        proc_shared.process_sync(&mut ex_mut)?;
+                        trace!(service_activator.ref_name = name_key_closure, mode="sync", outbound = outbound_arc_dyn.id(), out_body=?ex_mut.in_msg.body_text(), "service processed – forwarding");
+                        outbound_arc_dyn.send(ex_mut)?;
+                        trace!(service_activator.ref_name = name_key_closure, mode="sync", outbound = outbound_arc_dyn.id(), "exchange forwarded");
+                    }
+                    Ok(())
+                });
+                debug!(
+                    service_activator.ref_name = name_key,
+                    inbound = inbound_id,
+                    subscribers = sub_count,
+                    "service wired"
+                );
+            } else {
+                debug!(
+                    service_activator.ref_name = name_key,
+                    inbound_id = in_arc.id(),
+                    "inbound channel not direct – skipping wiring"
+                );
+            }
+        }
         for ch in rt.channels() {
             debug!(channel.id = ch.id(), kind = ch.kind(), "channel registered");
         }
+        debug!(
+            services.wired = rt.service_processor_count(),
+            "runtime wiring complete"
+        );
         debug!(
             channels = rt.channel_count(),
             filters = rt.filter_count(),
@@ -148,7 +343,7 @@ fn resolve_default_config() -> PathBuf {
     if cwd_candidate.exists() {
         return cwd_candidate;
     }
-    // Ascend from executable location (helps when running with --manifest-path from repo root).
+    // Ascend from the executable location (helps when running with --manifest-path from repo root).
     if let Ok(exe) = std::env::current_exe() {
         let mut dir_opt = exe.parent();
         let mut depth = 0u8;

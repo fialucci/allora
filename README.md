@@ -171,12 +171,12 @@ allora = { git = "https://github.com/fialucci/allora", default-features = false 
 ## Quick Start (Sync)
 
 ```rust
-use allora::{Message, Exchange, route::Route, patterns::filter::Filter};
+use allora::{patterns::filter::Filter, route::Route, Exchange, Message};
 
 fn example() -> allora::Result<()> {
     let mut exchange = Exchange::new(Message::from_text("hello"));
     let route = Route::new()
-        .add(Filter::new(|ex| ex.in_msg.body_text() == Some("hello")))
+        .add(Filter::new(|exchange| exchange.in_msg.body_text() == Some("hello")))
         .build();
     route.run(&mut exchange)?;
     Ok(())
@@ -190,14 +190,14 @@ use allora::{Message, Exchange, route::Route, processor::ClosureProcessor};
 #[tokio::main]
 async fn main() -> allora::Result<()> {
     let route = Route::new()
-        .add(ClosureProcessor::new(|ex| {
-            ex.out_msg = Some(Message::from_text("done"));
+        .add(ClosureProcessor::new(|exchange| {
+            exchange.out_msg = Some(Message::from_text("done"));
             Ok(())
         }))
         .build();
-    let mut ex = Exchange::new(Message::from_text("ping"));
-    route.run(&mut ex).await?;
-    assert_eq!(ex.out_msg.unwrap().body_text(), Some("done"));
+    let mut exchange = Exchange::new(Message::from_text("ping"));
+    route.run(&mut exchange).await?;
+    assert_eq!(exchange.out_msg.unwrap().body_text(), Some("done"));
     Ok(())
 }
 ```
@@ -220,8 +220,8 @@ fn example() -> allora::Result<()> {
         .build();
 
     ch.send(Exchange::new(Message::from_text("Hello World!")))?;
-    let ex = ch.try_receive().expect("exchange present");
-    assert_eq!(ex.in_msg.body_text(), Some("Hello World!"));
+    let exchange = ch.try_receive().expect("exchange present");
+    assert_eq!(exchange.in_msg.body_text(), Some("Hello World!"));
     Ok(())
 }
 ```
@@ -240,8 +240,8 @@ async fn main() -> allora::Result<()> {
         .build();
 
     ch.send_async(Exchange::new(Message::from_text("Hello World!"))).await?;
-    let ex = ch.try_receive_async().await.expect("exchange present");
-    assert_eq!(ex.in_msg.body_text(), Some("Hello World!"));
+    let exchange = ch.try_receive_async().await.expect("exchange present");
+    assert_eq!(exchange.in_msg.body_text(), Some("Hello World!"));
     Ok(())
 }
 ```
@@ -422,19 +422,19 @@ use allora::{Message, route::Route, patterns::filter::Filter,
 
 fn build_route() -> Route {
     Route::with_correlation(Some("corr"))
-        .add(Filter::with_error(|ex| ex.in_msg.body_text() == Some("hello"), "not_hello"))
+        .add(Filter::with_error(|exchange| exchange.in_msg.body_text() == Some("hello"), "not_hello"))
         .add(ContentBasedRouter::new("kind")
-            .when("hi", Box::new(ClosureProcessor::new(|ex| {
-                ex.out_msg = Some(Message::from_text("HI"));
+            .when("hi", Box::new(ClosureProcessor::new(|exchange| {
+                exchange.out_msg = Some(Message::from_text("HI"));
                 Ok(())
             })))
-            .when("bye", Box::new(ClosureProcessor::new(|ex| {
-                ex.out_msg = Some(Message::from_text("BYE"));
+            .when("bye", Box::new(ClosureProcessor::new(|exchange| {
+                exchange.out_msg = Some(Message::from_text("BYE"));
                 Ok(())
             }))))
         .add(Aggregator::new("corr", 3))
-        .add(Splitter::new(|ex| {
-            ex.in_msg.body_text()
+        .add(Splitter::new(|exchange| {
+            exchange.in_msg.body_text()
                 .map(|t| t.split_whitespace().map(Message::from_text).collect())
                 .unwrap_or_else(Vec::new)
         }))
@@ -608,14 +608,14 @@ Below are practical scenarios with the pattern(s) you would typically combine.
 ### Mini Example: Correlated Aggregation
 
 ```rust
-use allora::{Message, Exchange, route::Route, patterns::aggregator::Aggregator, processor::ClosureProcessor};
+use allora::{patterns::aggregator::Aggregator, processor::ClosureProcessor, route::Route, Exchange, Message};
 
 fn example() -> allora::Result<()> {
     let route = Route::with_correlation(Some("corr"))
         .add(Aggregator::new("corr", 3))
-        .add(ClosureProcessor::new(|ex| {
-            if ex.out_msg.is_none() {
-                ex.out_msg = Some(Message::from_text("complete"));
+        .add(ClosureProcessor::new(|exchange| {
+            if exchange.out_msg.is_none() {
+                exchange.out_msg = Some(Message::from_text("complete"));
             }
             Ok(())
         }))

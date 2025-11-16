@@ -6,14 +6,14 @@ fn direct_channel_dispatch_order_and_success() {
     let dc = DirectChannel::new();
     let calls: Arc<Mutex<Vec<&'static str>>> = Arc::new(Mutex::new(Vec::new()));
     let c1 = calls.clone();
-    dc.subscribe(move |ex: Exchange| {
-        assert_eq!(ex.in_msg.body_text(), Some("ping"));
+    dc.subscribe(move |exchange: Exchange| {
+        assert_eq!(exchange.in_msg.body_text(), Some("ping"));
         c1.lock().unwrap().push("a");
         Ok(())
     });
     let c2 = calls.clone();
-    dc.subscribe(move |ex: Exchange| {
-        assert_eq!(ex.in_msg.body_text(), Some("ping"));
+    dc.subscribe(move |exchange: Exchange| {
+        assert_eq!(exchange.in_msg.body_text(), Some("ping"));
         c2.lock().unwrap().push("b");
         Ok(())
     });

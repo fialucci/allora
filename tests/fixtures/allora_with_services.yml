@@ -1,0 +1,15 @@
+version: 1
+channels:
+  - kind: direct
+    id: inbound.orders
+  - kind: direct
+    id: vetted.orders
+service-activators:
+  - id: svc.hello
+    ref-name: service1
+    from: inbound.orders
+    to: vetted.orders
+  - ref-name: service2
+    from: inbound.orders
+    to: vetted.orders
+

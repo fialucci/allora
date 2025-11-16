@@ -27,20 +27,20 @@
 //!
 //! # Example (basic usage)
 //! ```
-//! use allora::{patterns::content_router::ContentBasedRouter, processor::ClosureProcessor, route::Route, Message, Exchange};
+//! use allora::{patterns::content_router::ContentBasedRouter, processor::ClosureProcessor, route::Route, Exchange, Message};
 //! // Build downstream processors
-//! let hi = ClosureProcessor::new(|ex| { ex.out_msg = Some(Message::from_text("hi route")); Ok(()) });
-//! let bye = ClosureProcessor::new(|ex| { ex.out_msg = Some(Message::from_text("bye route")); Ok(()) });
+//! let hi = ClosureProcessor::new(|exchange| { exchange.out_msg = Some(Message::from_text("hi route")); Ok(()) });
+//! let bye = ClosureProcessor::new(|exchange| { exchange.out_msg = Some(Message::from_text("bye route")); Ok(()) });
 //! // Build router on header "kind"
 //! let router = ContentBasedRouter::new("kind")
 //!     .when("hi", Box::new(hi))
 //!     .when("bye", Box::new(bye));
 //! let route = Route::new().add(router).build();
-//! let mut ex = Exchange::new(Message::from_text("payload"));
-//! ex.in_msg.set_header("kind", "hi");
-//! #[cfg(feature="async")] tokio::runtime::Runtime::new().unwrap().block_on(async { route.run(&mut ex).await.unwrap(); });
-//! #[cfg(not(feature="async"))] route.run(&mut ex).unwrap();
-//! assert_eq!(ex.out_msg.unwrap().body_text(), Some("hi route"));
+//! let mut exchange = Exchange::new(Message::from_text("payload"));
+//! exchange.in_msg.set_header("kind", "hi");
+//! #[cfg(feature = "async")] tokio::runtime::Runtime::new().unwrap().block_on(async { route.run(&mut exchange).await.unwrap(); });
+//! #[cfg(not(feature = "async"))] route.run(&mut exchange).unwrap();
+//! assert_eq!(exchange.out_msg.unwrap().body_text(), Some("hi route"));
 //! ```
 //!
 //! # Error Handling

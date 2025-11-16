@@ -27,6 +27,7 @@
 //! ```
 //!
 
+use crate::spec::ServiceActivatorsSpec;
 use crate::spec::{ChannelsSpec, FiltersSpec};
 
 #[derive(Debug, Clone)]
@@ -34,6 +35,7 @@ pub struct AlloraSpec {
     version: u32,
     channels: ChannelsSpec,
     filters: Option<FiltersSpec>,
+    services: Option<ServiceActivatorsSpec>,
 }
 
 impl AlloraSpec {
@@ -42,6 +44,7 @@ impl AlloraSpec {
             version,
             channels,
             filters: None,
+            services: None,
         }
     }
     /// Construct with an optional filters collection in a single call (ergonomic alternative to chaining `with_filters`).
@@ -55,10 +58,15 @@ impl AlloraSpec {
             version,
             channels,
             filters,
+            services: None,
         }
     }
     pub fn with_filters(mut self, filters: FiltersSpec) -> Self {
         self.filters = Some(filters);
+        self
+    }
+    pub fn with_services(mut self, services: ServiceActivatorsSpec) -> Self {
+        self.services = Some(services);
         self
     }
     pub fn version(&self) -> u32 {
@@ -70,10 +78,16 @@ impl AlloraSpec {
     pub fn filters_spec(&self) -> Option<&FiltersSpec> {
         self.filters.as_ref()
     }
+    pub fn services_spec(&self) -> Option<&ServiceActivatorsSpec> {
+        self.services.as_ref()
+    }
     pub fn into_channels_spec(self) -> ChannelsSpec {
         self.channels
     }
     pub fn into_filters_spec(self) -> Option<FiltersSpec> {
         self.filters
+    }
+    pub fn into_services_spec(self) -> Option<ServiceActivatorsSpec> {
+        self.services
     }
 }

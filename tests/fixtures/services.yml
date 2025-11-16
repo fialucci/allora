@@ -1,0 +1,6 @@
+version: 1
+service-activators:
+  - id: hello_activator
+    ref-name: the_service
+    from: inbound.orders
+    to: vetted.orders

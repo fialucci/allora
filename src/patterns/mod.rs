@@ -16,21 +16,21 @@
 //!
 //! # Example: Filter and Aggregator Combined
 //! ```
-//! use allora::{route::Route, processor::ClosureProcessor, Message, Exchange};
-//! use allora::patterns::{filter::Filter, aggregator::Aggregator, correlation_initializer::CorrelationInitializer};
+//! use allora::{route::Route , Exchange, Message};
+//! use allora::patterns::{aggregator::Aggregator, correlation_initializer::CorrelationInitializer, filter::Filter};
 //! // Correlation first
 //! let route = Route::new()
 //!     .add(CorrelationInitializer::with_mirror("corr"))
-//!     .add(Filter::new(|ex: &Exchange| ex.in_msg.body_text() == Some("keep")))
+//!     .add(Filter::new(|exchange: &Exchange| exchange.in_msg.body_text() == Some("keep")))
 //!     .add(Aggregator::new("corr", 2)) // simple size completion
 //!     .build();
-//! let mut ex = Exchange::new(Message::from_text("keep"));
-//! #[cfg(feature="async")]
-//! tokio::runtime::Runtime::new().unwrap().block_on(async { route.run(&mut ex).await.unwrap(); });
-//! #[cfg(not(feature="async"))]
-//! route.run(&mut ex).unwrap();
+//! let mut exchange = Exchange::new(Message::from_text("keep"));
+//! #[cfg(feature = "async")]
+//! tokio::runtime::Runtime::new().unwrap().block_on(async { route.run(&mut exchange).await.unwrap(); });
+//! #[cfg(not(feature = "async"))]
+//! route.run(&mut exchange).unwrap();
 //! // After first message aggregator not complete yet, so no out_msg
-//! assert!(ex.out_msg.is_none());
+//! assert!(exchange.out_msg.is_none());
 //! ```
 //!
 //! For detailed usage, see each submodule's own documentation and tests under `tests/`.

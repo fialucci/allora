@@ -1,0 +1,5 @@
+error: #[service] does not currently support generic impl blocks
+  --> tests/macro/diagnostics/service_fail_generic_impl.rs:13:5
+   |
+13 | impl<T> GenSvc<T> {}
+   |     ^^^

@@ -23,7 +23,7 @@
 //! ```rust
 //! use allora::{channel::{ChannelBuilder, Channel}, http_inbound_adapter::{HttpInboundAdapter, Mep}};
 //! use allora::adapter::Adapter;
-//! # #[cfg(feature="http")] {
+//! # #[cfg(feature = "http")] {
 //! let channel = ChannelBuilder::point_to_point().in_memory().id("http-pipe").build();
 //! let adapter = Adapter::inbound()
 //!     .http()
@@ -329,8 +329,8 @@ async fn adapt_request(
     }
 
     // Prepare Exchange with correlation id.
-    let mut ex = Exchange::new(msg);
-    ensure_correlation(&mut ex);
+    let mut exchange = Exchange::new(msg);
+    ensure_correlation(&mut exchange);
 
     match mep {
         Mep::InOut => {
@@ -351,7 +351,7 @@ async fn adapt_request(
                 for (idx, weak_ep) in endpoints.iter().enumerate() {
                     if let Some(ep) = weak_ep.upgrade() {
                         if let Some(ch_ref) = ep.channel() {
-                            let mut ex_clone = ex.clone();
+                            let mut ex_clone = exchange.clone();
                             EndpointSource::Http {
                                 adapter_id: adapter_id.clone(),
                                 method: method.as_str().to_string(),
@@ -367,7 +367,7 @@ async fn adapt_request(
                                 ch_ref.send(ex_clone)?;
                             }
                             if response_body.is_none() {
-                                response_body = ex.in_msg.body_text().map(|s| s.to_string());
+                                response_body = exchange.in_msg.body_text().map(|s| s.to_string());
                             }
                         }
                     } else {
@@ -380,13 +380,13 @@ async fn adapt_request(
             // Fallback: enqueue on primary channel only.
             #[cfg(feature = "async")]
             {
-                channel.send_async(ex.clone()).await?;
+                channel.send_async(exchange.clone()).await?;
             }
             #[cfg(not(feature = "async"))]
             {
-                channel.send(ex.clone())?;
+                channel.send(exchange.clone())?;
             }
-            let response_body = ex
+            let response_body = exchange
                 .in_msg
                 .body_text()
                 .map(|s| s.to_string())
@@ -398,13 +398,13 @@ async fn adapt_request(
             let ch = channel.clone();
             #[cfg(feature = "async")]
             tokio::spawn(async move {
-                let _ = ch.send_async(ex).await;
+                let _ = ch.send_async(exchange).await;
             });
             #[cfg(not(feature = "async"))]
             {
                 // If no async feature, still try to dispatch synchronously in a thread.
                 let _ = std::thread::spawn(move || {
-                    let _ = ch.send(ex);
+                    let _ = ch.send(exchange);
                 });
             }
             Ok(Response::builder()

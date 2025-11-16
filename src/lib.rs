@@ -23,9 +23,9 @@
 //! # Minimal Programmatic Example
 //! ```rust
 //! use allora::{Exchange, Message, patterns::filter::Filter};
-//! let mut ex = Exchange::new(Message::from_text("ping"));
+//! let mut exchange = Exchange::new(Message::from_text("ping"));
 //! let f = Filter::new(|e: &Exchange| e.in_msg.body_text() == Some("ping"));
-//! assert!(f.accepts(&ex));
+//! assert!(f.accepts(&exchange));
 //! ```
 //!
 //! # Minimal YAML Channel Spec
@@ -79,6 +79,8 @@ pub mod message;
 pub mod patterns;
 pub mod processor;
 pub mod route; // YAML DSL support (channel schema v1)
+pub mod service;
+pub mod service_activator_processor;
 pub mod spec; // new specification-based builders replacing DSL façade gradually
 
 // Channel abstractions
@@ -86,12 +88,15 @@ pub use adapter::{
     ensure_correlation, Adapter, InboundAdapter, OutboundAdapter, OutboundDispatchResult,
 };
 pub use allora::Allora;
+pub use allora_macros::service;
 pub use channel::{
-    Channel, ChannelBuilder, ChannelRef, CorrelationSupport, DefaultChannel,
-    DirectChannel, DirectChannelBuilder, InMemoryChannel, OutboundQueue,
+    Channel, ChannelBuilder, ChannelRef, CorrelationSupport, DefaultChannel, DirectChannel,
+    DirectChannelBuilder, InMemoryChannel, OutboundQueue,
 };
 pub use dsl::runtime::AlloraRuntime;
-pub use dsl::{build, build_channel, build_channel_from_str, build_filter, DslFormat};
+pub use dsl::{
+    build, build_channel, build_channel_from_str, build_filter, build_service, DslFormat,
+};
 pub use endpoint::{Endpoint, InMemoryEndpoint};
 pub use error::{Error, Result};
 #[cfg(feature = "http")]
@@ -101,4 +106,20 @@ pub use http_outbound_adapter::HttpOutboundAdapter;
 pub use message::{Exchange, Message, Payload};
 pub use patterns::filter::Filter;
 pub use processor::{BoxedProcessor, ClosureProcessor, Processor, SyncProcessor};
-pub use spec::{ChannelKindSpec, ChannelSpec};
+pub use service::{Service, ServiceActivator};
+
+#[derive(Clone)]
+pub struct ServiceDescriptor {
+    pub name: &'static str,
+    pub constructor: fn() -> Arc<dyn SyncProcessor>,
+}
+inventory::collect!(ServiceDescriptor);
+use inventory;
+use std::sync::Arc;
+pub fn all_service_descriptors() -> Vec<&'static ServiceDescriptor> {
+    let mut v = Vec::new();
+    for d in inventory::iter::<ServiceDescriptor> {
+        v.push(d);
+    }
+    v
+}

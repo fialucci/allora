@@ -67,8 +67,14 @@ use crate::{
     channel::{Channel, ChannelBuilder},
     error::{Error, Result},
     patterns::filter::Filter,
+    processor::ClosureProcessor,
     spec::{ChannelKindSpec, ChannelSpec, ChannelsSpec, FilterSpec, FiltersSpec},
+    spec::{ServiceActivatorSpec, ServiceActivatorsSpec},
 };
+// Service runtime placeholder: processor representing service logic.
+pub type ServiceProcessor =
+    ClosureProcessor<Box<dyn Fn(&mut crate::Exchange) -> Result<()> + Send + Sync + 'static>>;
+
 use std::collections::HashSet;
 
 /// Internal helper: build a single channel from spec.
@@ -164,7 +170,7 @@ pub fn build_filter_from_spec(spec: FilterSpec) -> Result<Filter> {
 pub fn build_filters_from_spec(spec: FiltersSpec) -> Result<Vec<Filter>> {
     let mut result = Vec::with_capacity(spec.filters().len());
     const AUTO_PREFIX: &str = "filter:auto.";
-    let mut used = std::collections::HashSet::new();
+    let mut used = HashSet::new();
     let mut max_auto_explicit = 0u64;
     // First pass: validate explicit ids & find highest reserved pattern
     for f in spec.filters() {
@@ -192,8 +198,91 @@ pub fn build_filters_from_spec(spec: FiltersSpec) -> Result<Vec<Filter>> {
         }
         let gen_id = format!("{AUTO_PREFIX}{auto_ctr}");
         auto_ctr += 1;
-        used.insert(gen_id.clone());
         result.push(Filter::from_apl_with_id(Some(gen_id), f.when())?);
+    }
+    Ok(result)
+}
+
+/// Internal: validate required invariant fields on a `ServiceSpec`.
+fn validate_service_activator_spec(spec: &ServiceActivatorSpec) -> Result<()> {
+    if spec.from().is_empty() {
+        return Err(Error::serialization("service.from must not be empty"));
+    }
+    if spec.to().is_empty() {
+        return Err(Error::serialization("service.to must not be empty"));
+    }
+    if spec.ref_name().is_empty() {
+        return Err(Error::serialization("service.ref-name must not be empty"));
+    }
+    Ok(())
+}
+
+/// Internal: build a service processor closure setting headers.
+/// Always sets `service-activator.ref-name`; sets `service-activator.id` if provided.
+fn service_processor_with_headers(id_opt: Option<&str>, ref_name: &str) -> ServiceProcessor {
+    let ref_name_copy = ref_name.to_string();
+    let id_copy = id_opt.map(|s| s.to_string());
+    let proc_fn: Box<dyn Fn(&mut crate::Exchange) -> Result<()> + Send + Sync + 'static> =
+        Box::new(move |exchange: &mut crate::Exchange| {
+            if let Some(ref id) = id_copy {
+                exchange.in_msg.set_header("service-activator.id", id);
+            }
+            exchange
+                .in_msg
+                .set_header("service-activator.ref-name", ref_name_copy.as_str());
+            Ok(())
+        });
+    ClosureProcessor::new(proc_fn)
+}
+
+/// Build a single Service from a validated `ServiceSpec`.
+/// Currently materializes as a `ClosureProcessor` placeholder executing no-op logic.
+/// Future: compile & load user-provided implementation from `ref_name`.
+pub fn build_service_from_spec(spec: ServiceActivatorSpec) -> Result<ServiceProcessor> {
+    validate_service_activator_spec(&spec)?;
+    // For a single build we preserve existing behavior: only impl header if id absent.
+    Ok(service_processor_with_headers(spec.id(), spec.ref_name()))
+}
+
+/// Build multiple services from `ServicesSpec` preserving order.
+/// Auto-ID Strategy:
+/// * Explicit non-empty ids must be unique; duplicates -> error.
+/// * Missing ids generated deterministically as `service:auto.N` starting at 1 (or next after any explicit reserved pattern).
+pub fn build_service_activators_from_spec(
+    spec: ServiceActivatorsSpec,
+) -> Result<Vec<ServiceProcessor>> {
+    let mut result = Vec::with_capacity(spec.services_activators().len());
+    const AUTO_PREFIX: &str = "service:auto.";
+    let mut used = HashSet::new();
+    let mut max_auto_explicit = 0u64;
+    // First pass: explicit IDs & validation
+    for s in spec.services_activators() {
+        validate_service_activator_spec(s)?;
+        if let Some(id) = s.id() {
+            if used.contains(id) {
+                return Err(Error::serialization(format!("duplicate service.id '{id}'")));
+            }
+            if let Some(rest) = id.strip_prefix(AUTO_PREFIX) {
+                if let Ok(n) = rest.parse::<u64>() {
+                    max_auto_explicit = max_auto_explicit.max(n);
+                }
+            }
+            used.insert(id.to_string());
+        }
+    }
+    // Second pass: build processors with generated IDs where missing
+    let mut auto_ctr = max_auto_explicit + 1;
+    for s in spec.services_activators() {
+        let id_final = match s.id() {
+            Some(id) => id.to_string(),
+            None => {
+                let gen = format!("{AUTO_PREFIX}{auto_ctr}");
+                auto_ctr += 1;
+                gen
+            }
+        };
+        let proc = service_processor_with_headers(Some(&id_final), s.ref_name());
+        result.push(proc);
     }
     Ok(result)
 }

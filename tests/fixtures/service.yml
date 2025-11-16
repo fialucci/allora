@@ -1,0 +1,6 @@
+version: 1
+service-activator:
+  id: hello_world
+  ref-name: src/hello_world.rs
+  from: inbound.orders
+  to: vetted.orders

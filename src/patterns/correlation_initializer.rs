@@ -17,14 +17,14 @@ use std::fmt::{Debug, Formatter, Result as FmtResult};
 ///
 /// # Example
 /// ```
-/// use allora::{route::Route, Message, Exchange, patterns::correlation_initializer::CorrelationInitializer, processor::ClosureProcessor};
+/// use allora::{patterns::correlation_initializer::CorrelationInitializer, processor::ClosureProcessor, route::Route, Exchange, Message};
 /// let route = Route::new()
 ///     .add(CorrelationInitializer::default())
-///     .add(ClosureProcessor::new(|ex| { ex.out_msg = Some(Message::from_text("done")); Ok(()) }))
+///     .add(ClosureProcessor::new(|exchange| { exchange.out_msg = Some(Message::from_text("done")); Ok(()) }))
 ///     .build();
-/// let mut ex = Exchange::new(Message::from_text("hi"));
-/// tokio::runtime::Runtime::new().unwrap().block_on(async { route.run(&mut ex).await.unwrap(); });
-/// assert!(ex.in_msg.header("correlation_id").is_some());
+/// let mut exchange = Exchange::new(Message::from_text("hi"));
+/// tokio::runtime::Runtime::new().unwrap().block_on(async { route.run(&mut exchange).await.unwrap(); });
+/// assert!(exchange.in_msg.header("correlation_id").is_some());
 /// ```
 #[derive(Clone, Default)]
 pub struct CorrelationInitializer {

@@ -153,8 +153,8 @@ pub fn init_from_dir(preferred: &Path) {
         subscriber.without_time().try_init()
     };
     if result.is_ok() {
-        debug!(source=%settings.source, filter=%settings.filter, timestamp=%settings.with_timestamp, ansi=%settings.ansi, "Logging initialized");
+        debug!(target="allora::logging", source=%settings.source, filter=%settings.filter, timestamp=%settings.with_timestamp, ansi=%settings.ansi, "Logging initialized");
     } else {
-        debug!(wanted_filter=%settings.filter, "Logging subscriber already set; using existing configuration");
+        debug!(target="allora::logging", wanted_filter=%settings.filter, "Logging subscriber already set; using existing configuration");
     }
 }

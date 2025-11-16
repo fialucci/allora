@@ -18,13 +18,13 @@
 //! # use allora::channel::{Channel, ChannelBuilder, OutboundQueue};
 //! let ch = ChannelBuilder::point_to_point().in_memory().id("demo").build();
 //! ch.send(Exchange::new(Message::from_text("ping"))).unwrap();
-//! let ex = ch.try_receive().unwrap();
-//! assert_eq!(ex.in_msg.body_text(), Some("ping"));
+//! let exchange = ch.try_receive().unwrap();
+//! assert_eq!(exchange.in_msg.body_text(), Some("ping"));
 //! ```
 //!
 //! # Basic (Async) Example
 //! ```no_run
-//! # #[cfg(feature="async")]
+//! # #[cfg(feature = "async")]
 //! # {
 //! # use allora::{Exchange, Message};
 //! # use allora::channel::{Channel, ChannelBuilder, OutboundQueue};
@@ -44,20 +44,20 @@
 //! # use allora::channel::{ChannelBuilder, CorrelationSupport, OutboundQueue};
 //! let ch = ChannelBuilder::point_to_point().in_memory().build();
 //! let corr_id = ch.send_with_correlation(Exchange::new(Message::from_text("req"))).unwrap();
-//! let ex = ch.receive_by_correlation(&corr_id).unwrap();
-//! assert_eq!(ex.in_msg.body_text(), Some("req"));
+//! let exchange = ch.receive_by_correlation(&corr_id).unwrap();
+//! assert_eq!(exchange.in_msg.body_text(), Some("req"));
 //! ```
 //!
 //! # Correlation Example (Async)
 //! ```no_run
-//! # #[cfg(feature="async")]
+//! # #[cfg(feature = "async")]
 //! # {
 //! # use allora::{Exchange, Message};
 //! # use allora::channel::{ChannelBuilder, CorrelationSupport, OutboundQueue};
 //! let ch = ChannelBuilder::point_to_point().in_memory().build();
 //! let corr_id = ch.send_with_correlation(Exchange::new(Message::from_text("req"))).unwrap();
-//! let ex = tokio::runtime::Runtime::new().unwrap().block_on(async { ch.receive_by_correlation_async(&corr_id).await.unwrap() });
-//! assert_eq!(ex.in_msg.body_text(), Some("req"));
+//! let exchange = tokio::runtime::Runtime::new().unwrap().block_on(async { ch.receive_by_correlation_async(&corr_id).await.unwrap() });
+//! assert_eq!(exchange.in_msg.body_text(), Some("req"));
 //! # }
 //! ```
 #[allow(dead_code)]
@@ -84,15 +84,15 @@ use tokio::runtime::Runtime;
 use tokio::sync::Mutex;
 use tracing::{debug, trace};
 
-fn log_send_enqueued(channel_id: &str, ex: &Exchange, is_async: bool, corr_id: Option<&str>) {
-    trace!(channel_id=%channel_id, async=%is_async, corr_id=?corr_id, in_body=?ex.in_msg.body_text(), "send enqueued");
+fn log_send_enqueued(channel_id: &str, exchange: &Exchange, is_async: bool, corr_id: Option<&str>) {
+    trace!(channel_id=%channel_id, async=%is_async, corr_id=?corr_id, in_body=?exchange.in_msg.body_text(), "send enqueued");
 }
 fn log_receive(
     channel_id: &str,
     kind: &'static str, // try_receive | try_receive_async | receive_by_correlation | receive_by_correlation_async | receive_blocking
     phase: &'static str, // empty | dequeued | start | timeout | received
     is_async: bool,
-    ex: Option<&Exchange>,
+    exchange: Option<&Exchange>,
     queue_size: Option<usize>,
     corr_id: Option<&str>,
     attempts: Option<u32>,
@@ -109,8 +109,8 @@ fn log_receive(
         attempts=?attempts,
         elapsed_ms=?elapsed_ms,
         timeout_ms=?timeout_ms,
-        in_body=?ex.and_then(|e| e.in_msg.body_text()),
-        out_body=?ex.and_then(|e| e.out_msg.as_ref().and_then(|m| m.body_text())),
+        in_body=?exchange.and_then(|e| e.in_msg.body_text()),
+        out_body=?exchange.and_then(|e| e.out_msg.as_ref().and_then(|m| m.body_text())),
         "receive dequeued"
     );
 }
@@ -324,20 +324,20 @@ impl InMemoryChannel {
         trace!(channel_id=%self.id, corr_id=%id, "generated correlation id");
         id
     }
-    fn ensure_correlation(&self, ex: &mut Exchange) -> String {
-        if let Some(id) = ex.in_msg.header("corr_id") {
+    fn ensure_correlation(&self, exchange: &mut Exchange) -> String {
+        if let Some(id) = exchange.in_msg.header("corr_id") {
             let id_str = id.to_string();
             trace!(channel_id=%self.id, corr_id=%id_str, "reusing existing corr_id");
-            if ex.in_msg.header("correlation_id").is_none() {
-                ex.in_msg.set_header("correlation_id", &id_str);
+            if exchange.in_msg.header("correlation_id").is_none() {
+                exchange.in_msg.set_header("correlation_id", &id_str);
             }
             id_str
         } else {
             let id = self.next_corr_id();
             trace!(channel_id=%self.id, corr_id=%id, "assigned new corr_id");
-            ex.in_msg.set_header("corr_id", &id);
-            if ex.in_msg.header("correlation_id").is_none() {
-                ex.in_msg.set_header("correlation_id", &id);
+            exchange.in_msg.set_header("corr_id", &id);
+            if exchange.in_msg.header("correlation_id").is_none() {
+                exchange.in_msg.set_header("correlation_id", &id);
             }
             id
         }
@@ -354,9 +354,9 @@ impl InMemoryChannel {
         }
     }
     #[cfg(feature = "async")]
-    async fn push_out_async(&self, ex: Exchange) {
+    async fn push_out_async(&self, exchange: Exchange) {
         let mut g = self.out_queue.lock().await;
-        g.push(ex);
+        g.push(exchange);
     }
 }
 
@@ -389,8 +389,8 @@ impl OutboundQueue for InMemoryChannel {
     fn try_receive(&self) -> Option<Exchange> {
         #[cfg(not(feature = "async"))]
         {
-            let ex = self.out_queue.lock().unwrap().pop_front();
-            if let Some(ref e) = ex {
+            let exchange = self.out_queue.lock().unwrap().pop_front();
+            if let Some(ref e) = exchange {
                 log_receive(
                     self.id(),
                     "try_receive",
@@ -417,7 +417,7 @@ impl OutboundQueue for InMemoryChannel {
                     None,
                 );
             }
-            ex
+            exchange
         }
         #[cfg(feature = "async")]
         {
@@ -442,20 +442,20 @@ impl OutboundQueue for InMemoryChannel {
             );
             None
         } else {
-            let ex = g.remove(0);
+            let exchange = g.remove(0);
             log_receive(
                 self.id(),
                 "try_receive_async",
                 "dequeued",
                 true,
-                Some(&ex),
+                Some(&exchange),
                 Some(g.len()),
                 None,
                 None,
                 None,
                 None,
             );
-            Some(ex)
+            Some(exchange)
         }
     }
 
@@ -475,20 +475,20 @@ impl OutboundQueue for InMemoryChannel {
         let start = Instant::now();
         let mut attempts = 0u32;
         loop {
-            if let Some(ex) = self.try_receive() {
+            if let Some(exchange) = self.try_receive() {
                 log_receive(
                     self.id(),
                     "receive_blocking",
                     "received",
                     false,
-                    Some(&ex),
+                    Some(&exchange),
                     None,
                     None,
                     Some(attempts),
                     Some(start.elapsed().as_millis()),
                     timeout.map(|t| t.as_millis()),
                 );
-                return Some(ex);
+                return Some(exchange);
             }
             attempts += 1;
             if let Some(t) = timeout {
@@ -538,20 +538,20 @@ impl CorrelationSupport for InMemoryChannel {
                 .iter()
                 .position(|e| e.in_msg.header("corr_id") == Some(_corr_id))
             {
-                let ex = g.remove(pos);
+                let exchange = g.remove(pos);
                 log_receive(
                     self.id(),
                     "receive_by_correlation",
                     "dequeued",
                     false,
-                    Some(&ex),
+                    Some(&exchange),
                     Some(g.len()),
                     Some(_corr_id),
                     None,
                     None,
                     None,
                 );
-                return Some(ex);
+                return Some(exchange);
             }
             log_receive(
                 self.id(),
@@ -579,20 +579,20 @@ impl CorrelationSupport for InMemoryChannel {
             .iter()
             .position(|e| e.in_msg.header("corr_id") == Some(corr_id))
         {
-            let ex = g.remove(pos);
+            let exchange = g.remove(pos);
             log_receive(
                 self.id(),
                 "receive_by_correlation_async",
                 "dequeued",
                 true,
-                Some(&ex),
+                Some(&exchange),
                 Some(g.len()),
                 Some(corr_id),
                 None,
                 None,
                 None,
             );
-            return Some(ex);
+            return Some(exchange);
         }
         log_receive(
             self.id(),
@@ -612,8 +612,8 @@ impl CorrelationSupport for InMemoryChannel {
     fn await_correlation(&self, corr_id: &str, timeout: Option<Duration>) -> Option<Exchange> {
         let start = Instant::now();
         loop {
-            if let Some(ex) = self.receive_by_correlation(corr_id) {
-                return Some(ex);
+            if let Some(exchange) = self.receive_by_correlation(corr_id) {
+                return Some(exchange);
             }
             if let Some(t) = timeout {
                 if start.elapsed() >= t {
@@ -678,11 +678,11 @@ impl InMemoryChannelBuilder {
 /// use allora::{Message, Exchange};
 /// let ch = ChannelBuilder::point_to_point().in_memory().id("pipe").build();
 /// ch.send(Exchange::new(Message::from_text("data"))).unwrap();
-/// #[cfg(not(feature="async"))]
-/// let ex = ch.try_receive().unwrap();
-/// #[cfg(feature="async")]
-/// let ex = tokio::runtime::Runtime::new().unwrap().block_on(async { ch.try_receive_async().await.unwrap() });
-/// assert_eq!(ex.in_msg.body_text(), Some("data"));
+/// #[cfg(not(feature = "async"))]
+/// let exchange = ch.try_receive().unwrap();
+/// #[cfg(feature = "async")]
+/// let exchange = tokio::runtime::Runtime::new().unwrap().block_on(async { ch.try_receive_async().await.unwrap() });
+/// assert_eq!(exchange.in_msg.body_text(), Some("data"));
 /// ```
 #[allow(dead_code)]
 const _STAGED_BUILDER_EXAMPLE: () = ();

@@ -12,9 +12,12 @@ fn dsl_build_filter_from_file() {
     // Without Trace-Id header should reject even if the body contains KEEP
     assert!(!apply(&f, "A KEEP message"));
     // With header present accept
-    let mut ex = Exchange::new(Message::from_text("A KEEP message"));
-    ex.in_msg.headers.insert("Trace-Id".into(), "abc".into());
-    assert!(f.accepts(&ex));
+    let mut exchange = Exchange::new(Message::from_text("A KEEP message"));
+    exchange
+        .in_msg
+        .headers
+        .insert("Trace-Id".into(), "abc".into());
+    assert!(f.accepts(&exchange));
     // Non-matching body still reject
     let mut ex2 = Exchange::new(Message::from_text("A DROP message"));
     ex2.in_msg.headers.insert("Trace-Id".into(), "abc".into());
@@ -35,11 +38,17 @@ fn dsl_build_filter_from_str_header_equals() {
     let raw = "version: 1\nfilter:\n  from: any\n  when: header(\"Priority\") == \"high\"";
     let tmp = temp_yaml(raw);
     let f = build_filter(tmp.path()).expect("build filter header equals");
-    let mut ex = Exchange::new(Message::from_text("irrelevant"));
-    ex.in_msg.headers.insert("Priority".into(), "high".into());
-    assert!(f.accepts(&ex));
-    ex.in_msg.headers.insert("Priority".into(), "low".into());
-    assert!(!f.accepts(&ex));
+    let mut exchange = Exchange::new(Message::from_text("irrelevant"));
+    exchange
+        .in_msg
+        .headers
+        .insert("Priority".into(), "high".into());
+    assert!(f.accepts(&exchange));
+    exchange
+        .in_msg
+        .headers
+        .insert("Priority".into(), "low".into());
+    assert!(!f.accepts(&exchange));
 }
 
 #[test]
@@ -47,10 +56,13 @@ fn dsl_build_filter_from_str_exists_header() {
     let raw = "version: 1\nfilter:\n  from: any\n  when: exists(header(\"Trace-Id\"))";
     let tmp = temp_yaml(raw);
     let f = build_filter(tmp.path()).expect("build filter exists header");
-    let mut ex = Exchange::new(Message::from_text("body"));
-    assert!(!f.accepts(&ex));
-    ex.in_msg.headers.insert("Trace-Id".into(), "abc".into());
-    assert!(f.accepts(&ex));
+    let mut exchange = Exchange::new(Message::from_text("body"));
+    assert!(!f.accepts(&exchange));
+    exchange
+        .in_msg
+        .headers
+        .insert("Trace-Id".into(), "abc".into());
+    assert!(f.accepts(&exchange));
 }
 
 #[test]

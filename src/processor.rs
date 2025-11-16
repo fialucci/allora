@@ -21,11 +21,11 @@ use std::fmt::{Debug, Formatter, Result as FmtResult};
 ///
 /// # Example (sync)
 /// ```
-/// use allora::{processor::{ClosureProcessor, SyncProcessor}, Exchange, Message, error::Result};
-/// let p = ClosureProcessor::new(|ex: &mut Exchange| { ex.in_msg.set_header("t", "1"); Ok(()) });
-/// let mut ex = Exchange::new(Message::from_text("hi"));
-/// p.process_sync(&mut ex).unwrap();
-/// assert_eq!(ex.in_msg.header("t"), Some("1"));
+/// use allora::{processor::{ClosureProcessor, SyncProcessor}, Exchange, Message };
+/// let p = ClosureProcessor::new(|exchange: &mut Exchange| { exchange.in_msg.set_header("t", "1"); Ok(()) });
+/// let mut exchange = Exchange::new(Message::from_text("hi"));
+/// p.process_sync(&mut exchange).unwrap();
+/// assert_eq!(exchange.in_msg.header("t"), Some("1"));
 /// ```
 ///
 /// # Example (async custom processor)
@@ -35,15 +35,15 @@ use std::fmt::{Debug, Formatter, Result as FmtResult};
 /// struct Delay;
 /// #[async_trait::async_trait]
 /// impl Processor for Delay {
-///     async fn process(&self, ex: &mut Exchange) -> Result<()> {
-///         ex.in_msg.set_header("async", "ok");
+///     async fn process(&self, exchange: &mut Exchange) -> Result<()> {
+///         exchange.in_msg.set_header("async", "ok");
 ///         Ok(())
 ///     }
 /// }
 /// let p = Delay;
-/// let mut ex = Exchange::new(Message::from_text("ping"));
-/// tokio::runtime::Runtime::new().unwrap().block_on(async { p.process(&mut ex).await.unwrap(); });
-/// assert_eq!(ex.in_msg.header("async"), Some("ok"));
+/// let mut exchange = Exchange::new(Message::from_text("ping"));
+/// tokio::runtime::Runtime::new().unwrap().block_on(async { p.process(&mut exchange).await.unwrap(); });
+/// assert_eq!(exchange.in_msg.header("async"), Some("ok"));
 /// ```
 #[cfg(feature = "async")]
 #[async_trait::async_trait]

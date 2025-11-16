@@ -67,6 +67,9 @@ pub mod filter_spec;
 pub mod filter_spec_yaml;
 pub mod filters_spec;
 pub mod filters_spec_yaml;
+pub mod service_spec;
+pub mod service_spec_yaml;
+pub mod services_spec;
 pub mod version;
 
 pub use allora_spec::AlloraSpec;
@@ -79,3 +82,6 @@ pub use filter_spec::FilterSpec;
 pub use filter_spec_yaml::FilterSpecYamlParser;
 pub use filters_spec::FiltersSpec;
 pub use filters_spec_yaml::FiltersSpecYamlParser;
+pub use service_spec::ServiceActivatorSpec;
+pub use service_spec_yaml::ServiceSpecYamlParser;
+pub use services_spec::ServiceActivatorsSpec;

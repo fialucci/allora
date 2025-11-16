@@ -47,10 +47,10 @@ async fn http_outbound_posts_out_msg_if_present() {
         .id("out-test")
         .build()
         .unwrap();
-    let mut ex = Exchange::new(Message::from_text("in"));
-    ex.out_msg = Some(Message::from_text("out"));
+    let mut exchange = Exchange::new(Message::from_text("in"));
+    exchange.out_msg = Some(Message::from_text("out"));
 
-    let res = adapter.dispatch(&ex).await.expect("dispatch");
+    let res = adapter.dispatch(&exchange).await.expect("dispatch");
     assert!(res.acknowledged);
     assert!(res.message.unwrap().starts_with("HTTP"));
 
@@ -88,9 +88,9 @@ async fn http_outbound_falls_back_to_in_msg() {
         .base_path("/")
         .build()
         .unwrap();
-    let ex = Exchange::new(Message::from_text("only-in"));
+    let exchange = Exchange::new(Message::from_text("only-in"));
 
-    let res = adapter.dispatch(&ex).await.expect("dispatch");
+    let res = adapter.dispatch(&exchange).await.expect("dispatch");
     assert!(res.acknowledged);
 
     tokio::time::sleep(std::time::Duration::from_millis(50)).await; // ensure server processed
@@ -120,9 +120,9 @@ async fn http_outbound_staged_builder() {
         .build()
         .expect("build outbound");
     assert_eq!(outbound.id(), "staged-outbound");
-    let mut ex = Exchange::new(Message::from_text("hello"));
-    ex.out_msg = Some(Message::from_text("world"));
-    let res = outbound.dispatch(&ex).await.expect("dispatch");
+    let mut exchange = Exchange::new(Message::from_text("hello"));
+    exchange.out_msg = Some(Message::from_text("world"));
+    let res = outbound.dispatch(&exchange).await.expect("dispatch");
     assert!(res.acknowledged);
     server_handle.abort();
 }

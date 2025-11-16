@@ -69,9 +69,9 @@ fn endpoint_source_http_sync() {
         .source_http(&adapter, "POST", "/hooks/github")
         .id("ep-http")
         .build();
-    let mut ex = Exchange::new(Message::from_text("payload"));
-    ex.in_msg.set_header("source.kind", "pre-set");
-    ep.send(ex).unwrap();
+    let mut exchange = Exchange::new(Message::from_text("payload"));
+    exchange.in_msg.set_header("source.kind", "pre-set");
+    ep.send(exchange).unwrap();
     let received = ep.try_receive().expect("received one");
     assert_eq!(received.in_msg.header("source.kind"), Some("pre-set"));
     assert_eq!(
@@ -153,9 +153,9 @@ async fn endpoint_source_http_async() {
         .channel(channel.clone())
         .source_http(&adapter, "PUT", "/api/items")
         .build();
-    let mut ex = Exchange::new(Message::from_text("payload"));
-    ex.in_msg.set_header("source.kind", "custom");
-    ep.send_async(ex).await.unwrap();
+    let mut exchange = Exchange::new(Message::from_text("payload"));
+    exchange.in_msg.set_header("source.kind", "custom");
+    ep.send_async(exchange).await.unwrap();
     let received = ep.try_receive_async().await.expect("received one");
     assert_eq!(received.in_msg.header("source.kind"), Some("custom"));
     assert_eq!(
@@ -233,8 +233,8 @@ fn endpoint_attach_http_sync() {
     use allora::route::Route;
     // channel + route for endpoint
     let route = Route::new()
-        .add(ClosureProcessor::new(|ex| {
-            ex.out_msg = Some(Message::from_text("dyn"));
+        .add(ClosureProcessor::new(|exchange| {
+            exchange.out_msg = Some(Message::from_text("dyn"));
             Ok(())
         }))
         .build();
@@ -279,8 +279,8 @@ fn endpoint_attach_http_any_sync() {
     use allora::processor::ClosureProcessor;
     use allora::route::Route;
     let route = Route::new()
-        .add(ClosureProcessor::new(|ex| {
-            ex.out_msg = Some(Message::from_text("any"));
+        .add(ClosureProcessor::new(|exchange| {
+            exchange.out_msg = Some(Message::from_text("any"));
             Ok(())
         }))
         .build();

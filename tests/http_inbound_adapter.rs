@@ -30,8 +30,8 @@ async fn http_inbound_injects_correlation_and_echoes_it() {
     let bytes = hyper::body::to_bytes(resp.into_body()).await.unwrap();
     assert_eq!(&bytes[..], b"test"); // echo behavior
                                      // Inspect queued exchange for correlation headers
-    let ex = channel.try_receive_async().await.expect("queued exchange");
-    let cid = ex
+    let exchange = channel.try_receive_async().await.expect("queued exchange");
+    let cid = exchange
         .in_msg
         .header("correlation_id")
         .expect("correlation_id header");
