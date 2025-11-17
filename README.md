@@ -214,9 +214,7 @@ use allora::channel::{Channel, ChannelBuilder, OutboundQueue};
 use allora::{Exchange, Message};
 
 fn example() -> allora::Result<()> {
-    let ch = ChannelBuilder::point_to_point()
-        .in_memory()
-        .id("hello_channel")
+    let ch = ChannelBuilder::queue("hello_channel")
         .build();
 
     ch.send(Exchange::new(Message::from_text("Hello World!")))?;
@@ -234,9 +232,7 @@ use allora::{Exchange, Message};
 
 #[tokio::main]
 async fn main() -> allora::Result<()> {
-    let ch = ChannelBuilder::point_to_point()
-        .in_memory()
-        .id("hello_channel")
+    let ch = ChannelBuilder::queue("hello_channel")
         .build();
 
     ch.send_async(Exchange::new(Message::from_text("Hello World!"))).await?;
@@ -264,7 +260,7 @@ use allora::adapter::Adapter; // inbound adapter facade
 #[tokio::main]
 async fn main() -> allora::Result<()> {
     // Build a channel to receive HTTP-translated Exchanges.
-    let ch = ChannelBuilder::point_to_point().in_memory().id("http-pipe").build();
+    let ch = ChannelBuilder::queue("http-pipe").build();
     let adapter = Adapter::inbound()
         .http()
         .host("127.0.0.1")

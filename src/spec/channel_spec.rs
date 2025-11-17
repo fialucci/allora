@@ -8,7 +8,7 @@
 //! # Invariants
 //! * `id` is optional; if omitted a runtime builder will generate a unique id.
 //! * If `id` is present it must not be the empty string (builders enforce).
-//! * `kind` enumerates supported implementations; currently only `in_memory`.
+//! * `kind` enumerates supported implementations; currently only `queue`.
 //!
 //! # Adding New Channel Kinds
 //! 1. Extend `ChannelKindSpec` enum (e.g. `Kafka`, `Redis`).
@@ -19,7 +19,7 @@
 //! # Programmatic Example
 //! ```rust
 //! use allora::spec::ChannelSpec;
-//! let spec = ChannelSpec::in_memory().id("orders-events");
+//! let spec = ChannelSpec::queue().id("orders-events");
 //! assert_eq!(spec.channel_id(), Some("orders-events"));
 //! ```
 //!
@@ -43,10 +43,10 @@ impl ChannelSpec {
             kind: ChannelKindSpec::Direct,
         }
     }
-    pub fn in_memory() -> Self {
+    pub fn queue() -> Self {
         Self {
             id: None,
-            kind: ChannelKindSpec::InMemory,
+            kind: ChannelKindSpec::Queue,
         }
     }
     /// Set the channel identifier (required by some builders, ignored by others).
@@ -69,7 +69,7 @@ impl ChannelSpec {
 #[serde(rename_all = "snake_case")]
 pub enum ChannelKindSpec {
     Direct,
-    InMemory,
+    Queue,
 }
 
 impl Default for ChannelKindSpec {

@@ -1,4 +1,6 @@
-use allora::{channel::ChannelBuilder, Channel, Exchange, Message, OutboundQueue};
+use allora::channel::PollableChannel;
+use allora::channel::QueueChannel;
+use allora::{Channel, Exchange, Message};
 // Distinct coverage areas:
 // 1. Inbound identity round-trip (no out_msg)
 // 2. Outbound message retention (explicit out_msg)
@@ -12,7 +14,7 @@ use allora::{channel::ChannelBuilder, Channel, Exchange, Message, OutboundQueue}
 #[cfg_attr(feature = "async", tokio::test)]
 #[cfg_attr(not(feature = "async"), test)]
 async fn channel_preserves_inbound_message_identity() {
-    let channel = ChannelBuilder::point_to_point().in_memory().build();
+    let channel = QueueChannel::with_random_id();
     let original = Message::from_text("inbound-identity");
     let original_id = original.header("message_id").unwrap().to_string();
     let exchange = Exchange::new(original.clone());
@@ -43,7 +45,7 @@ async fn channel_preserves_inbound_message_identity() {
 #[cfg_attr(feature = "async", tokio::test)]
 #[cfg_attr(not(feature = "async"), test)]
 async fn channel_retains_outbound_message() {
-    let channel = ChannelBuilder::point_to_point().in_memory().build();
+    let channel = QueueChannel::with_random_id();
     let mut exchange = Exchange::new(Message::from_text("input"));
     exchange.out_msg = Some(Message::from_text("processed"));
     #[cfg(feature = "async")]
@@ -65,7 +67,7 @@ async fn channel_retains_outbound_message() {
 #[cfg_attr(feature = "async", tokio::test)]
 #[cfg_attr(not(feature = "async"), test)]
 async fn channel_preserves_fifo_order() {
-    let channel = ChannelBuilder::point_to_point().in_memory().build();
+    let channel = QueueChannel::with_random_id();
     for i in 0..4 {
         // 4 messages to strengthen ordering guarantee
         let mut exchange = Exchange::new(Message::from_text(format!("in-{i}")));
@@ -98,17 +100,14 @@ async fn channel_preserves_fifo_order() {
 
 /// GIVEN explicit id builder usage and default builder usage
 /// WHEN channels are built
-/// THEN explicit id matches provided value and auto id has channel: prefix.
+/// THEN explicit id matches provided value and auto id has queue: prefix.
 #[cfg_attr(feature = "async", tokio::test)]
 #[cfg_attr(not(feature = "async"), test)]
 async fn channel_builder_id_explicit_and_auto() {
-    let explicit = ChannelBuilder::point_to_point()
-        .in_memory()
-        .id("explicit-id")
-        .build();
+    let explicit = QueueChannel::with_id("explicit-id");
     assert_eq!(explicit.id(), "explicit-id");
-    let auto = ChannelBuilder::point_to_point().in_memory().build();
-    assert!(auto.id().starts_with("channel:"));
+    let auto = QueueChannel::with_random_id();
+    assert!(auto.id().starts_with("queue:"));
 }
 
 /// Correlation behavior:
@@ -117,7 +116,7 @@ async fn channel_builder_id_explicit_and_auto() {
 #[cfg_attr(feature = "async", tokio::test)]
 #[cfg_attr(not(feature = "async"), test)]
 async fn channel_correlation_ids_distinct() {
-    let channel = ChannelBuilder::point_to_point().in_memory().build();
+    let channel = QueueChannel::with_random_id();
     #[cfg(not(feature = "async"))]
     {
         use allora::channel::CorrelationSupport; // import trait only for sync path

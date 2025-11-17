@@ -60,7 +60,7 @@ impl ChannelsSpecYamlParser {
                     .ok_or_else(|| Error::serialization("channel.kind must be string"))?;
                 match kind_str {
                     "direct" => ChannelKindSpec::Direct,
-                    "in_memory" => ChannelKindSpec::InMemory,
+                    "queue" => ChannelKindSpec::Queue,
                     other => {
                         return Err(Error::serialization(format!(
                             "unsupported channel.kind '{other}'"

@@ -22,9 +22,9 @@
 //!
 //! # Example (unified)
 //! ```
-//! use allora::{endpoint::InMemoryEndpoint, Message, Exchange};
+//! use allora::{ Exchange, Message};
 //! use allora::endpoint::EndpointBuilder;
-//! let ep = EndpointBuilder::in_out().in_memory().build();
+//! let ep = EndpointBuilder::in_out().queue().build();
 //! #[cfg(feature = "async")]
 //! {
 //!     use allora::endpoint::Endpoint;
@@ -49,8 +49,7 @@
 //! This implementation is suitable for testing and simple use cases. For more complex
 //! scenarios, consider building a custom endpoint or using the `Channel` abstraction.
 
-use crate::channel::ChannelRef;
-use crate::channel::{Channel, InMemoryChannel};
+use crate::channel::{Channel, ChannelRef};
 #[cfg(feature = "http")]
 use crate::http_inbound_adapter::HttpInboundAdapter;
 use crate::{error::Result, Exchange};
@@ -139,8 +138,8 @@ impl EndpointBuilder {
 pub struct InOutStage;
 pub struct InOnlyStage;
 impl InOutStage {
-    pub fn in_memory(self) -> InOutInMemoryEndpointBuilder {
-        InOutInMemoryEndpointBuilder {
+    pub fn queue(self) -> InOutQueueEndpointBuilder {
+        InOutQueueEndpointBuilder {
             id: None,
             source: None,
             wire: None,
@@ -149,7 +148,7 @@ impl InOutStage {
     }
 }
 impl InOnlyStage {
-    pub fn in_memory(self) -> InOnlyInMemoryEndpointBuilder {
+    pub fn queue(self) -> InOnlyInMemoryEndpointBuilder {
         InOnlyInMemoryEndpointBuilder {
             id: None,
             source: None,
@@ -166,15 +165,15 @@ enum DeferredWire {
         path: String,
     },
     #[allow(dead_code)]
-    Channel { channel: Weak<InMemoryChannel> },
+    Channel { channel: Weak<dyn Channel> },
 }
-pub struct InOutInMemoryEndpointBuilder {
+pub struct InOutQueueEndpointBuilder {
     id: Option<String>,
     source: Option<EndpointSource>,
     wire: Option<DeferredWire>,
     channel: Option<ChannelRef>,
 }
-impl InOutInMemoryEndpointBuilder {
+impl InOutQueueEndpointBuilder {
     pub fn id(mut self, id: impl Into<String>) -> Self {
         self.id = Some(id.into());
         self
@@ -208,13 +207,13 @@ impl InOutInMemoryEndpointBuilder {
         });
         self
     }
-    pub fn source_channel(mut self, channel: &Arc<InMemoryChannel>) -> Self {
+    pub fn source_channel<T: Channel + 'static>(mut self, channel: &Arc<T>) -> Self {
         self.source = Some(EndpointSource::Channel {
             channel_id: channel.id().to_string(),
         });
-        self.wire = Some(DeferredWire::Channel {
-            channel: Arc::downgrade(channel),
-        });
+        // store as trait object
+        let obj: ChannelRef = Arc::clone(channel) as ChannelRef;
+        self.channel = Some(obj);
         self
     }
     pub fn build(self) -> Arc<InMemoryEndpoint> {
@@ -276,7 +275,7 @@ impl InOnlyInMemoryEndpointBuilder {
         // no registration for in-only endpoints
         self
     }
-    pub fn source_channel(mut self, channel: &Arc<InMemoryChannel>) -> Self {
+    pub fn source_channel<T: Channel + 'static>(mut self, channel: &Arc<T>) -> Self {
         self.source = Some(EndpointSource::Channel {
             channel_id: channel.id().to_string(),
         });

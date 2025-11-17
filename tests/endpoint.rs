@@ -1,10 +1,8 @@
 #[cfg(feature = "http")]
 use allora::adapter::Adapter;
-#[cfg(feature = "http")]
-use allora::channel::ChannelBuilder;
+use allora::channel::{ChannelRef, QueueChannel};
 use allora::endpoint::{Endpoint, EndpointBuilder};
 #[cfg(feature = "http")]
-use allora::Channel;
 use allora::{Exchange, Message};
 #[cfg(feature = "http")]
 use std::sync::Arc;
@@ -12,7 +10,7 @@ use std::sync::Arc;
 #[cfg(not(feature = "async"))]
 #[test]
 fn endpoint_fifo_sync() {
-    let ep = EndpointBuilder::in_out().in_memory().build();
+    let ep = EndpointBuilder::in_out().queue().build();
     ep.send(Exchange::new(Message::from_text("first"))).unwrap();
     ep.send(Exchange::new(Message::from_text("second")))
         .unwrap();
@@ -26,7 +24,7 @@ fn endpoint_fifo_sync() {
 #[cfg(feature = "async")]
 #[tokio::test]
 async fn endpoint_fifo_async() {
-    let ep = EndpointBuilder::in_out().in_memory().build();
+    let ep = EndpointBuilder::in_out().queue().build();
     ep.send_async(Exchange::new(Message::from_text("A")))
         .await
         .unwrap();
@@ -48,24 +46,20 @@ async fn endpoint_fifo_async() {
 #[test]
 fn endpoint_source_http_sync() {
     let route = allora::route::Route::new().build();
-    let channel = Arc::new(
-        ChannelBuilder::point_to_point()
-            .in_memory()
-            .route(route)
-            .build(),
-    );
+    let channel_arc = Arc::new(QueueChannel::with_random_id());
+    let channel_ref: ChannelRef = channel_arc.clone();
     let adapter = Arc::new(
         Adapter::inbound()
             .http()
             .host("127.0.0.1")
             .port(31050)
             .id("http-adapter-1")
-            .channel(channel.clone())
+            .channel(channel_ref.clone())
             .build(),
     );
     let ep = EndpointBuilder::in_out()
-        .in_memory()
-        .channel(channel.clone())
+        .queue()
+        .channel(channel_ref.clone())
         .source_http(&adapter, "POST", "/hooks/github")
         .id("ep-http")
         .build();
@@ -89,16 +83,11 @@ fn endpoint_source_http_sync() {
 #[test]
 fn endpoint_source_channel_sync() {
     let route = allora::route::Route::new().build();
-    let channel = Arc::new(
-        ChannelBuilder::point_to_point()
-            .in_memory()
-            .route(route)
-            .id("channel-42")
-            .build(),
-    );
+    let channel_arc: Arc<QueueChannel> = Arc::new(QueueChannel::with_id("channel-42"));
+    let channel_ref: ChannelRef = channel_arc.clone();
     let ep = EndpointBuilder::in_out()
-        .in_memory()
-        .source_channel(&channel)
+        .queue()
+        .source_channel(&channel_arc)
         .build();
     ep.send(Exchange::new(Message::from_text("data"))).unwrap();
     let received = ep.try_receive().unwrap();
@@ -113,16 +102,11 @@ fn endpoint_source_channel_sync() {
 #[test]
 fn endpoint_in_only_source_channel_sync() {
     let route = allora::route::Route::new().build();
-    let channel = Arc::new(
-        ChannelBuilder::point_to_point()
-            .in_memory()
-            .route(route)
-            .id("channel-inonly")
-            .build(),
-    );
+    let channel_arc: Arc<QueueChannel> = Arc::new(QueueChannel::with_id("channel-inonly"));
+    let channel_ref: ChannelRef = channel_arc.clone();
     let ep = EndpointBuilder::in_only()
-        .in_memory()
-        .source_channel(&channel)
+        .queue()
+        .source_channel(&channel_arc)
         .build();
     ep.send(Exchange::new(Message::from_text("ignored")))
         .unwrap();
@@ -132,25 +116,20 @@ fn endpoint_in_only_source_channel_sync() {
 #[cfg(all(feature = "async", feature = "http"))]
 #[tokio::test]
 async fn endpoint_source_http_async() {
-    let route = allora::route::Route::new().build();
-    let channel = Arc::new(
-        ChannelBuilder::point_to_point()
-            .in_memory()
-            .route(route)
-            .build(),
-    );
+    let channel_arc = Arc::new(QueueChannel::with_random_id());
+    let channel_ref: ChannelRef = channel_arc.clone();
     let adapter = Arc::new(
         Adapter::inbound()
             .http()
             .host("127.0.0.1")
             .port(31051)
             .id("http-adapter-2")
-            .channel(channel.clone())
+            .channel(channel_ref.clone())
             .build(),
     );
     let ep = EndpointBuilder::in_out()
-        .in_memory()
-        .channel(channel.clone())
+        .queue()
+        .channel(channel_ref.clone())
         .source_http(&adapter, "PUT", "/api/items")
         .build();
     let mut exchange = Exchange::new(Message::from_text("payload"));
@@ -172,16 +151,9 @@ async fn endpoint_source_http_async() {
 #[cfg(all(feature = "async", feature = "http"))]
 #[tokio::test]
 async fn endpoint_source_channel_async() {
-    let route = allora::route::Route::new().build();
-    let channel = Arc::new(
-        ChannelBuilder::point_to_point()
-            .in_memory()
-            .route(route)
-            .id("chan-99")
-            .build(),
-    );
+    let channel: Arc<QueueChannel> = Arc::new(QueueChannel::with_id("chan-99"));
     let ep = EndpointBuilder::in_out()
-        .in_memory()
+        .queue()
         .source_channel(&channel)
         .build();
     ep.send_async(Exchange::new(Message::from_text("async")))
@@ -198,17 +170,10 @@ async fn endpoint_source_channel_async() {
 #[cfg(all(feature = "async", feature = "http"))]
 #[tokio::test]
 async fn endpoint_in_only_source_channel_async() {
-    let route = allora::route::Route::new().build();
-    let channel = Arc::new(
-        ChannelBuilder::point_to_point()
-            .in_memory()
-            .route(route)
-            .id("chan-inonly")
-            .build(),
-    );
+    let channel_arc: Arc<QueueChannel> = Arc::new(QueueChannel::with_id("chan-inonly"));
     let ep = EndpointBuilder::in_only()
-        .in_memory()
-        .source_channel(&channel)
+        .queue()
+        .source_channel(&channel_arc)
         .build();
     ep.send_async(Exchange::new(Message::from_text("ignored")))
         .await
@@ -219,10 +184,7 @@ async fn endpoint_in_only_source_channel_async() {
 #[cfg(not(feature = "async"))]
 #[test]
 fn endpoint_custom_id() {
-    let ep = EndpointBuilder::in_out()
-        .in_memory()
-        .id("custom-ep")
-        .build();
+    let ep = EndpointBuilder::in_out().queue().id("custom-ep").build();
     assert_eq!(ep.id(), "custom-ep");
 }
 
@@ -231,31 +193,24 @@ fn endpoint_custom_id() {
 fn endpoint_attach_http_sync() {
     use allora::processor::ClosureProcessor;
     use allora::route::Route;
-    // channel + route for endpoint
     let route = Route::new()
         .add(ClosureProcessor::new(|exchange| {
             exchange.out_msg = Some(Message::from_text("dyn"));
             Ok(())
         }))
         .build();
-    let ep_channel = Arc::new(
-        ChannelBuilder::point_to_point()
-            .in_memory()
-            .route(route)
-            .id("ep-chan-dyn")
-            .build(),
-    );
+    let ep_channel_arc = Arc::new(QueueChannel::with_id("ep-chan-dyn"));
+    let ep_channel_ref: ChannelRef = ep_channel_arc.clone();
     let endpoint = EndpointBuilder::in_out()
-        .in_memory()
-        .channel(ep_channel.clone())
+        .queue()
         .id("ep-dyn")
+        .channel(ep_channel_ref.clone())
         .build();
-    // adapter primary channel (can be same or separate; using ep_channel for simplicity)
     let adapter = Adapter::inbound()
         .http()
         .host("127.0.0.1")
         .port(34010)
-        .channel(ep_channel.clone())
+        .channel(ep_channel_ref.clone())
         .build();
     endpoint.attach_http(&adapter, "POST", "/dyn");
     let handle = adapter.spawn_serve();
@@ -284,23 +239,18 @@ fn endpoint_attach_http_any_sync() {
             Ok(())
         }))
         .build();
-    let ep_channel = Arc::new(
-        ChannelBuilder::point_to_point()
-            .in_memory()
-            .route(route)
-            .id("ep-chan-any")
-            .build(),
-    );
+    let ep_channel_arc = Arc::new(QueueChannel::with_id("ep-chan-any"));
+    let ep_channel_ref: ChannelRef = ep_channel_arc.clone();
     let endpoint = EndpointBuilder::in_out()
-        .in_memory()
-        .channel(ep_channel.clone())
+        .queue()
         .id("ep-any")
+        .channel(ep_channel_ref.clone())
         .build();
     let adapter = Adapter::inbound()
         .http()
         .host("127.0.0.1")
         .port(34011)
-        .channel(ep_channel.clone())
+        .channel(ep_channel_ref.clone())
         .build();
     endpoint.attach_http_any(&adapter, "/any");
     let handle = adapter.spawn_serve();
@@ -323,22 +273,18 @@ fn endpoint_attach_http_any_sync() {
 #[cfg(all(feature = "async", feature = "http"))]
 #[tokio::test]
 async fn endpoint_attach_http_async() {
-    let ep_channel = Arc::new(
-        ChannelBuilder::point_to_point()
-            .in_memory()
-            .id("ep-chan-dynA")
-            .build(),
-    );
+    let ep_channel_arc = Arc::new(QueueChannel::with_id("ep-chan-dynA"));
+    let ep_channel_ref: ChannelRef = ep_channel_arc.clone();
     let endpoint = EndpointBuilder::in_out()
-        .in_memory()
-        .channel(ep_channel.clone())
+        .queue()
+        .channel(ep_channel_ref.clone())
         .id("ep-dynA")
         .build();
     let adapter = Adapter::inbound()
         .http()
         .host("127.0.0.1")
         .port(34012)
-        .channel(ep_channel.clone())
+        .channel(ep_channel_ref.clone())
         .build();
     endpoint.attach_http(&adapter, "PUT", "/dynA");
     let handle = adapter.spawn_serve();
@@ -360,22 +306,18 @@ async fn endpoint_attach_http_async() {
 #[cfg(all(feature = "async", feature = "http"))]
 #[tokio::test]
 async fn endpoint_attach_http_any_async() {
-    let ep_channel = Arc::new(
-        ChannelBuilder::point_to_point()
-            .in_memory()
-            .id("ep-chan-anyA")
-            .build(),
-    );
+    let ep_channel_arc = Arc::new(QueueChannel::with_id("ep-chan-anyA"));
+    let ep_channel_ref: ChannelRef = ep_channel_arc.clone();
     let endpoint = EndpointBuilder::in_out()
-        .in_memory()
-        .channel(ep_channel.clone())
+        .queue()
+        .channel(ep_channel_ref.clone())
         .id("ep-anyA")
         .build();
     let adapter = Adapter::inbound()
         .http()
         .host("127.0.0.1")
         .port(34013)
-        .channel(ep_channel.clone())
+        .channel(ep_channel_ref.clone())
         .build();
     endpoint.attach_http_any(&adapter, "/anyA");
     let handle = adapter.spawn_serve();

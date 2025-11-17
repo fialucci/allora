@@ -23,8 +23,8 @@ properties:
     properties:
       kind:
         type: string
-        enum: [ in_memory ]
-        default: in_memory     # if 'kind' missing inside 'channel'
+        enum: [ queue ]
+        default: queue     # if 'kind' missing inside 'channel'
       id:
         type: string
         minLength: 1           # optional; no default here

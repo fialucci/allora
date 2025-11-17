@@ -54,8 +54,8 @@ fn filters_malformed_reserved_prefix_ignored_for_sequence() {
 #[test]
 fn channels_explicit_reserved_like_prefix_does_not_shift_sequence() {
     let spec = ChannelsSpec::new(1)
-        .add(ChannelSpec::in_memory().id("channel:auto.3"))
-        .add(ChannelSpec::in_memory())
+        .add(ChannelSpec::queue().id("channel:auto.3"))
+        .add(ChannelSpec::queue())
         .add(ChannelSpec::direct());
     let built = build_channels_from_spec(spec).expect("build channels");
     let ids: Vec<String> = built.iter().map(|c| c.id().to_string()).collect();

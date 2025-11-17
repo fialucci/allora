@@ -20,7 +20,7 @@
 //! ```rust
 //! use allora::spec::{AlloraSpec, ChannelsSpec, ChannelSpec};
 //! // Programmatic construction
-//! let channels = ChannelsSpec::new(1).add(ChannelSpec::in_memory().id("orders"));
+//! let channels = ChannelsSpec::new(1).add(ChannelSpec::queue().id("orders"));
 //! let all = AlloraSpec::new(1, channels);
 //! assert_eq!(all.version(), 1);
 //! assert_eq!(all.channels_spec().channels().len(), 1);

@@ -93,14 +93,13 @@ fn spec_build_channel_kind_in_memory() {
     let tmp = temp_yaml(
         r#"version: 1
 channel:
-  kind: in_memory
+  kind: queue
   id: kind-check
 "#,
     );
     let chan = build_channel(tmp.path()).expect("channel builds");
     assert_eq!(chan.id(), "kind-check");
-    // Downcast not needed: ChannelInfo implemented for InMemoryChannel returned by build_channel
-    assert_eq!(chan.kind(), "in_memory");
+    assert_eq!(chan.kind(), "queue");
 }
 
 #[test]
@@ -234,6 +233,6 @@ channel:
     );
     let chan = build_channel(tmp.path()).expect("channel builds");
     assert_eq!(chan.id(), "default-kind");
-    // Internally still 'in_memory' variant.
+    // Internally still 'queue' variant.
     assert_eq!(chan.kind(), "direct");
 }

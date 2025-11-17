@@ -14,7 +14,7 @@ impl HelloService {
 impl Service for HelloService {
     async fn process(&self, exchange: &mut Exchange) -> Result<()> {
         if let Some(body) = exchange.in_msg.body_text() {
-            exchange.in_msg.payload = Payload::Text(format!("{body} World!"));
+            exchange.in_msg.payload = Payload::Text(format!("Hello {body}!"));
         }
         Ok(())
     }

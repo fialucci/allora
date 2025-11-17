@@ -21,10 +21,8 @@
 //!
 //! # Example (Builder)
 //! ```rust
-//! use allora::{channel::{ChannelBuilder, Channel}, http_inbound_adapter::{HttpInboundAdapter, Mep}};
 //! use allora::adapter::Adapter;
-//! # #[cfg(feature = "http")] {
-//! let channel = ChannelBuilder::point_to_point().in_memory().id("http-pipe").build();
+//! let channel = allora::channel::QueueChannel::with_id("http-pipe");
 //! let adapter = Adapter::inbound()
 //!     .http()
 //!     .host("127.0.0.1")
@@ -32,8 +30,8 @@
 //!     .channel(std::sync::Arc::new(channel))
 //!     .in_only_202()
 //!     .build();
+//! use allora::http_inbound_adapter::Mep;
 //! assert_eq!(adapter.mep(), Mep::InOnly202);
-//! }
 //! ```
 
 use crate::adapter::{ensure_correlation, BaseAdapter, InboundAdapter};
