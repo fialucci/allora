@@ -24,7 +24,8 @@ use super::version::validate_version;
 use crate::error::{Error, Result};
 use crate::spec::{
     allora_spec::AlloraSpec, channels_spec_yaml::ChannelsSpecYamlParser,
-    filters_spec_yaml::FiltersSpecYamlParser, ChannelsSpec, FiltersSpec,
+    filters_spec_yaml::FiltersSpecYamlParser, ChannelsSpec, FiltersSpec, ServiceActivatorsSpec,
+    ServiceSpecYamlParser,
 };
 use serde_yaml::Value as YamlValue;
 
@@ -41,6 +42,8 @@ impl AlloraSpecYamlParser {
         }
         // optional filters
         let filters_root = yaml.get("filters");
+        // optional services
+        let services_root = yaml.get("service-activators");
         // Synthesize mapping for channel parser reuse
         let mut obj = serde_yaml::Mapping::new();
         obj.insert(
@@ -68,6 +71,41 @@ impl AlloraSpecYamlParser {
             let fsynth = serde_yaml::Value::Mapping(fobj);
             let filters_spec: FiltersSpec = FiltersSpecYamlParser::parse_value(&fsynth)?;
             all = all.with_filters(filters_spec);
+        }
+        if let Some(sr) = services_root {
+            if !sr.is_sequence() {
+                return Err(Error::serialization(
+                    "'service-activators' must be a sequence",
+                ));
+            }
+            let seq = sr.as_sequence().unwrap();
+            if seq.is_empty() {
+                return Err(Error::serialization(
+                    "'service-activators' sequence must not be empty",
+                ));
+            }
+            let mut services_spec = ServiceActivatorsSpec::new(v);
+            for item in seq {
+                if !item.is_mapping() {
+                    return Err(Error::serialization(
+                        "service-activator entry must be a mapping",
+                    ));
+                }
+                // synthesize a single service document for an existing parser
+                let mut obj = serde_yaml::Mapping::new();
+                obj.insert(
+                    serde_yaml::Value::String("version".into()),
+                    serde_yaml::Value::Number(serde_yaml::Number::from(v)),
+                );
+                obj.insert(
+                    serde_yaml::Value::String("service-activator".into()),
+                    item.clone(),
+                );
+                let synthesized = serde_yaml::Value::Mapping(obj);
+                let svc = ServiceSpecYamlParser::parse_value(&synthesized)?;
+                services_spec.push(svc);
+            }
+            all = all.with_services(services_spec);
         }
         Ok(all)
     }

@@ -46,7 +46,10 @@
 //! These will be added as additional fields with accessor methods while keeping
 //! `AlloraRuntime` construction centralized in the DSL facade.
 use crate::channel::Channel;
+use crate::dsl::component_builders::ServiceProcessor;
 use crate::patterns::filter::Filter;
+use crate::service_activator_processor::ServiceActivatorProcessor;
+use std::sync::Arc;
 
 #[derive(Debug)]
 /// Aggregated runtime container for all built components (channels today, more later).
@@ -55,18 +58,23 @@ use crate::patterns::filter::Filter;
 /// operations. Use `into_channels()` only when you need ownership transfer (e.g. embedding
 /// channels into another structure or performing manual lifecycle management).
 pub struct AlloraRuntime {
-    channels: Vec<Box<dyn Channel>>,
+    channels: Vec<Arc<dyn Channel>>,
     filters: Vec<Filter>,
+    services: Vec<ServiceProcessor>,
+    service_activator_processors: Vec<ServiceActivatorProcessor>,
 }
 
 impl AlloraRuntime {
     /// Create a new runtime instance from a vector of channels.
     ///
-    /// Typically invoked internally by the DSL (`build_runtime_from_str`).
+    /// Typically, invoked internally by the DSL (`build_runtime_from_str`).
     pub fn new(channels: Vec<Box<dyn Channel>>) -> Self {
+        let channels_arc = channels.into_iter().map(|c| Arc::from(c)).collect();
         Self {
-            channels,
+            channels: channels_arc,
             filters: Vec::new(),
+            services: Vec::new(),
+            service_activator_processors: Vec::new(),
         }
     }
     /// Sets the filters for this runtime.
@@ -76,25 +84,44 @@ impl AlloraRuntime {
         self.filters = filters;
         self
     }
+    /// Sets the services for this runtime.
+    ///
+    /// Consumes the provided services vector and assigns it to the runtime.
+    pub fn with_services(mut self, services: Vec<ServiceProcessor>) -> Self {
+        self.services = services;
+        self
+    }
+    pub fn with_service_processors(mut self, proc: Vec<ServiceActivatorProcessor>) -> Self {
+        self.service_activator_processors = proc;
+        self
+    }
     /// Borrow all channels as an iterator of &dyn Channel (zero allocation).
     pub fn channels(&self) -> impl Iterator<Item = &dyn Channel> {
         self.channels.iter().map(|c| c.as_ref())
     }
     /// Borrow underlying boxed channel slice (rarely needed).
-    pub fn channels_slice(&self) -> &[Box<dyn Channel>] {
+    pub fn channels_slice(&self) -> &[Arc<dyn Channel>] {
         &self.channels
     }
     /// Borrow all filters (read-only slice).
     pub fn filters(&self) -> &[Filter] {
         &self.filters
     }
+    /// Borrow all services (read-only slice).
+    pub fn services(&self) -> &[ServiceProcessor] {
+        &self.services
+    }
     /// Consume the runtime, yielding owned channels.
-    pub fn into_channels(self) -> Vec<Box<dyn Channel>> {
+    pub fn into_channels(self) -> Vec<Arc<dyn Channel>> {
         self.channels
     }
     /// Consume the runtime, yielding owned filters.
     pub fn into_filters(self) -> Vec<Filter> {
         self.filters
+    }
+    /// Consume the runtime, yielding owned services.
+    pub fn into_services(self) -> Vec<ServiceProcessor> {
+        self.services
     }
     /// Find a channel by its id; returns `None` if not present.
     ///
@@ -146,5 +173,32 @@ impl AlloraRuntime {
     /// Total number of filters in this runtime.
     pub fn filter_count(&self) -> usize {
         self.filters.len()
+    }
+    /// Total number of services in this runtime.
+    pub fn service_count(&self) -> usize {
+        self.services.len()
+    }
+    /// Total number of service processors in this runtime.
+    pub fn service_processor_count(&self) -> usize {
+        self.service_activator_processors.len()
+    }
+    pub fn service_activator_processors(&self) -> &[ServiceActivatorProcessor] {
+        &self.service_activator_processors
+    }
+    pub fn service_activator_processor_by_id(
+        &self,
+        id: &str,
+    ) -> Option<&ServiceActivatorProcessor> {
+        self.service_activator_processors
+            .iter()
+            .find(|p| p.id() == id)
+    }
+    pub fn service_activator_processor_mut_by_id(
+        &mut self,
+        id: &str,
+    ) -> Option<&mut ServiceActivatorProcessor> {
+        self.service_activator_processors
+            .iter_mut()
+            .find(|p| p.id() == id)
     }
 }

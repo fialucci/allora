@@ -21,36 +21,36 @@
 //! # Example
 //! ```
 //! use allora::{patterns::recipient_list::RecipientList, processor::ClosureProcessor, route::Route, Exchange, Message};
-//! let r1 = ClosureProcessor::new(|ex| { ex.in_msg.set_header("step", "1"); Ok(()) });
-//! let r2 = ClosureProcessor::new(|ex| { ex.out_msg = Some(Message::from_text("done")); Ok(()) });
+//! let r1 = ClosureProcessor::new(|exchange| { exchange.in_msg.set_header("step", "1"); Ok(()) });
+//! let r2 = ClosureProcessor::new(|exchange| { exchange.out_msg = Some(Message::from_text("done")); Ok(()) });
 //! let list = RecipientList::new().add(r1).add(r2);
 //! let route = Route::new().add(list).build();
-//! let mut ex = Exchange::new(Message::from_text("payload"));
-//! #[cfg(feature="async")] tokio::runtime::Runtime::new().unwrap().block_on(route.run(&mut ex)).unwrap();
-//! #[cfg(not(feature="async"))] route.run(&mut ex).unwrap();
-//! assert_eq!(ex.in_msg.header("step"), Some("1"));
-//! assert_eq!(ex.out_msg.unwrap().body_text(), Some("done"));
+//! let mut exchange = Exchange::new(Message::from_text("payload"));
+//! #[cfg(feature = "async")] tokio::runtime::Runtime::new().unwrap().block_on(route.run(&mut exchange)).unwrap();
+//! #[cfg(not(feature = "async"))] route.run(&mut exchange).unwrap();
+//! assert_eq!(exchange.in_msg.header("step"), Some("1"));
+//! assert_eq!(exchange.out_msg.unwrap().body_text(), Some("done"));
 //! ```
 //!
 //! # Error Short-Circuit Example
 //! ```
-//! use allora::{patterns::recipient_list::RecipientList, processor::ClosureProcessor, route::Route, Message, Exchange, Error, error::Result};
-//! let ok = ClosureProcessor::new(|ex| { ex.in_msg.set_header("visited", "yes"); Ok(()) });
+//! use allora::{patterns::recipient_list::RecipientList, processor::ClosureProcessor, route::Route, Error, Exchange, Message };
+//! let ok = ClosureProcessor::new(|exchange| { exchange.in_msg.set_header("visited", "yes"); Ok(()) });
 //! let fail = ClosureProcessor::new(|_| Err(Error::processor("boom"))); // stop here
-//! let after = ClosureProcessor::new(|ex| { ex.in_msg.set_header("after", "should_not"); Ok(()) });
+//! let after = ClosureProcessor::new(|exchange| { exchange.in_msg.set_header("after", "should_not"); Ok(()) });
 //! let list = RecipientList::new().add(ok).add(fail).add(after);
 //! let route = Route::new().add(list).build();
-//! let mut ex = Exchange::new(Message::from_text("payload"));
+//! let mut exchange = Exchange::new(Message::from_text("payload"));
 //! let res = {
-//!     #[cfg(feature="async")]
-//!     let r = tokio::runtime::Runtime::new().unwrap().block_on(route.run(&mut ex));
-//!     #[cfg(not(feature="async"))]
-//!     let r = route.run(&mut ex);
+//!     #[cfg(feature = "async")]
+//!     let r = tokio::runtime::Runtime::new().unwrap().block_on(route.run(&mut exchange));
+//!     #[cfg(not(feature = "async"))]
+//!     let r = route.run(&mut exchange);
 //!     r
 //! };
 //! assert!(res.is_err());
-//! assert!(ex.in_msg.header("visited").is_some());
-//! assert!(ex.in_msg.header("after").is_none());
+//! assert!(exchange.in_msg.header("visited").is_some());
+//! assert!(exchange.in_msg.header("after").is_none());
 //! ```
 //!
 //! # Testing Tips

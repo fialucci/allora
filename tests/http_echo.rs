@@ -38,23 +38,26 @@ async fn http_echo_single_request_and_shutdown() {
 
     // Assert the channel received exactly one Exchange with expected attributes.
     use allora::OutboundQueue; // trait for try_receive_async
-    let ex = channel
+    let exchange = channel
         .try_receive_async()
         .await
         .expect("exchange enqueued");
-    assert_eq!(ex.in_msg.body_text(), Some("hello"));
-    assert_eq!(ex.in_msg.header("http.method"), Some("POST"));
-    assert_eq!(ex.in_msg.header("http.path"), Some("/"));
-    assert_eq!(ex.in_msg.header("http.content_type"), Some("text/plain"));
+    assert_eq!(exchange.in_msg.body_text(), Some("hello"));
+    assert_eq!(exchange.in_msg.header("http.method"), Some("POST"));
+    assert_eq!(exchange.in_msg.header("http.path"), Some("/"));
+    assert_eq!(
+        exchange.in_msg.header("http.content_type"),
+        Some("text/plain")
+    );
     // Correlation headers should be present
-    let corr_id = ex.in_msg.header("corr_id").expect("corr_id present");
+    let corr_id = exchange.in_msg.header("corr_id").expect("corr_id present");
     assert_eq!(corr_id.len(), 36, "corr_id should be UUID v4 length");
     assert!(
         corr_id.chars().all(|c| c == '-' || c.is_ascii_hexdigit()),
         "corr_id must be hex+hyphens"
     );
     // Mirror header (correlation_id) should match
-    assert_eq!(ex.in_msg.header("correlation_id"), Some(corr_id));
+    assert_eq!(exchange.in_msg.header("correlation_id"), Some(corr_id));
     // Queue should now be empty
     assert!(channel.try_receive_async().await.is_none());
 

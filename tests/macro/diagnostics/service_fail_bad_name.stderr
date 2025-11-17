@@ -1,0 +1,5 @@
+error: expected string literal
+ --> tests/macro/diagnostics/service_fail_bad_name.rs:9:18
+  |
+9 | #[service(name = 123)]
+  |                  ^^^

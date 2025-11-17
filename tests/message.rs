@@ -99,7 +99,10 @@ fn message_ids_and_correlation_ids() {
     let mid2 = m2.header("message_id").unwrap();
     assert_ne!(mid1, mid2, "message ids should be unique");
 
-    let mut ex = Exchange::new(Message::from_text("ex"));
-    let cid_ex = ex.correlation_id().to_string();
-    assert_eq!(ex.in_msg.header("correlation_id"), Some(cid_ex.as_str()));
+    let mut exchange = Exchange::new(Message::from_text("exchange"));
+    let cid_ex = exchange.correlation_id().to_string();
+    assert_eq!(
+        exchange.in_msg.header("correlation_id"),
+        Some(cid_ex.as_str())
+    );
 }

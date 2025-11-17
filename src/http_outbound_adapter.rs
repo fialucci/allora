@@ -25,7 +25,7 @@
 //!
 //! # Example
 //! ```no_run
-//! use allora::{HttpOutboundAdapter, adapter::OutboundAdapter, Message, Exchange};
+//! use allora::{adapter::OutboundAdapter, Exchange, HttpOutboundAdapter, Message};
 //! # async fn demo() {
 //! let adapter = HttpOutboundAdapter::builder()
 //!     .id("http-public")
@@ -33,8 +33,8 @@
 //!     .port(8080)
 //!     .base_path("/")
 //!     .build().unwrap();
-//! let mut ex = Exchange::new(Message::from_text("ping"));
-//! let _res = adapter.dispatch(&ex).await.unwrap();
+//! let mut exchange = Exchange::new(Message::from_text("ping"));
+//! let _res = adapter.dispatch(&exchange).await.unwrap();
 //! # }
 //! ```
 //!

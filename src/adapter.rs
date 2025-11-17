@@ -29,7 +29,7 @@
 //!
 //! # Outbound Example (Hypothetical)
 //! ```
-//! use allora::{adapter::{OutboundAdapter, Adapter, OutboundDispatchResult}, error::Result, Exchange, Message};
+//! use allora::{adapter::{OutboundAdapter , OutboundDispatchResult}, error::Result, Exchange, Message};
 //! use async_trait::async_trait;
 //! #[derive(Debug)] struct LoggingOutbound;
 //! impl allora::adapter::BaseAdapter for LoggingOutbound { fn id(&self) -> &str { "logging_outbound" } }
@@ -40,9 +40,9 @@
 //!     }
 //! }
 //! let adapter = LoggingOutbound;
-//! let mut ex = Exchange::new(Message::from_text("hello"));
-//! ex.out_msg = Some(Message::from_text("world"));
-//! let res = tokio::runtime::Runtime::new().unwrap().block_on(async { adapter.dispatch(&ex).await.unwrap() });
+//! let mut exchange = Exchange::new(Message::from_text("hello"));
+//! exchange.out_msg = Some(Message::from_text("world"));
+//! let res = tokio::runtime::Runtime::new().unwrap().block_on(async { adapter.dispatch(&exchange).await.unwrap() });
 //! assert!(res.acknowledged);
 //! assert_eq!(res.message.unwrap(), "echo:world");
 //! ```
@@ -50,9 +50,9 @@
 //! # Correlation Example
 //! ```rust
 //! use allora::{adapter::ensure_correlation, Message, Exchange};
-//! let mut ex = Exchange::new(Message::from_text("payload"));
-//! ensure_correlation(&mut ex);
-//! assert!(ex.in_msg.header("correlation_id").is_some());
+//! let mut exchange = Exchange::new(Message::from_text("payload"));
+//! ensure_correlation(&mut exchange);
+//! assert!(exchange.in_msg.header("correlation_id").is_some());
 //! ```
 //!
 //! # Correlation Strategy

@@ -25,6 +25,10 @@ properties:
     # Optional collection of filters reusing filters.schema.yml
     $ref: "local://schemas/v1/filters.schema.yml#/properties/filters"
     description: "Optional collection of filter definitions (message filter expressions)."
+  service-activators:
+    # Optional collection of service activators reusing service-activators.schema.yml
+    $ref: "local://schemas/v1/service-activators.schema.yml#/properties/service-activators"
+    description: "Optional collection of service activator definitions (runtime processors)."
 
 examples:
   - version: 1

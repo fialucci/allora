@@ -1,0 +1,5 @@
+error: No zero-arg `new()` found in this impl block; define one for #[service]
+ --> tests/macro/diagnostics/service_fail_no_new.rs:5:6
+  |
+5 | impl NoNew {}
+  |      ^^^^^

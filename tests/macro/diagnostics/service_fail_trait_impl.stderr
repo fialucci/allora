@@ -1,0 +1,5 @@
+error: #[service] must be applied to an inherent impl (e.g. impl Type { ... })
+  --> tests/macro/diagnostics/service_fail_trait_impl.rs:10:18
+   |
+10 | impl Service for TraitSvc {}
+   |                  ^^^^^^^^

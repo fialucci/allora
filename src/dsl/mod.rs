@@ -14,6 +14,7 @@
 //! # Supported Components (v1)
 //! * Channel (InMemory kind)
 //! * Filter (single filter spec via `build_filter` AND aggregated when present in top-level `allora.yml` into `AlloraRuntime`)
+//! * Service (single service spec via `build_service`; aggregation forthcoming when services spec collection is added)
 //!
 //! # Supported Formats
 //! * YAML (`DslFormat::Yaml`)
@@ -31,6 +32,13 @@
 //! use allora::build_filter;
 //! let f = build_filter("tests/fixtures/filter.yml").unwrap();
 //! // apply using f.accepts(exchange)
+//! ```
+//!
+//! # Building a Single Service
+//! ```rust
+//! use allora::build_service;
+//! let svc = build_service("tests/fixtures/service.yml").unwrap();
+//! // invoke via svc.process_sync(&mut exchange) (add SyncProcessor import if needed)
 //! ```
 //!
 //! # Building Multiple Filters (collection spec)
@@ -103,11 +111,14 @@ use crate::{
     channel::Channel,
     error::{Error, Result},
     patterns::filter::Filter,
-    spec::{AlloraSpecYamlParser, ChannelSpecYamlParser, FilterSpecYamlParser},
+    service_activator_processor::ServiceActivatorProcessor,
+    spec::{
+        AlloraSpecYamlParser, ChannelSpecYamlParser, FilterSpecYamlParser, ServiceSpecYamlParser,
+    },
 };
 use component_builders::{
     build_channel_from_spec, build_channels_from_spec, build_filter_from_spec,
-    build_filters_from_spec,
+    build_filters_from_spec, build_service_from_spec,
 };
 use std::path::Path;
 
@@ -183,19 +194,54 @@ pub fn build_filter(path: impl AsRef<Path>) -> Result<Filter> {
     build_filter_from_str(&raw, format)
 }
 
+/// Build service from raw string + specified format.
+fn build_service_from_str(
+    raw: &str,
+    format: DslFormat,
+) -> Result<component_builders::ServiceProcessor> {
+    match format {
+        DslFormat::Yaml => {
+            let spec = ServiceSpecYamlParser::parse_str(raw)?;
+            build_service_from_spec(spec)
+        }
+        DslFormat::Json => Err(Error::serialization("json format not yet supported")),
+        DslFormat::Xml => Err(Error::serialization("xml format not yet supported")),
+    }
+}
+
+/// Convenience: build service from a file path (auto-detect format via extension).
+pub fn build_service(path: impl AsRef<Path>) -> Result<component_builders::ServiceProcessor> {
+    let path_ref = path.as_ref();
+    let raw =
+        std::fs::read_to_string(path_ref).map_err(|e| Error::other(format!("read error: {e}")))?;
+    let format = DslFormat::from_path(path_ref)
+        .ok_or_else(|| Error::serialization("cannot infer DSL format from extension"))?;
+    build_service_from_str(&raw, format)
+}
+
 /// Internal helper: build full runtime from raw + format.
 fn build_runtime_from_str(raw: &str, format: DslFormat) -> Result<AlloraRuntime> {
     match format {
         DslFormat::Yaml => {
             let top = AlloraSpecYamlParser::parse_str(raw)?;
-            // Clone filters (optional) first, then consume `top` for channels to avoid cloning channels_spec.
             let filters_spec = top.filters_spec().cloned();
+            let services_spec = top.services_spec().cloned();
             let channels_spec = top.into_channels_spec();
             let channels = build_channels_from_spec(channels_spec)?;
             let mut rt = AlloraRuntime::new(channels);
             if let Some(fspec) = filters_spec {
                 let filters = build_filters_from_spec(fspec)?;
                 rt = rt.with_filters(filters);
+            }
+            if let Some(sspec) = services_spec {
+                let services = component_builders::build_service_activators_from_spec(sspec.clone())?;
+                rt = rt.with_services(services);
+                // Build activator processors from original specs (clone services spec entries)
+                let mut procs = Vec::new();
+                for s in sspec.services_activators() {
+                    procs.push(ServiceActivatorProcessor::new(s.clone()));
+                }
+                rt = rt.with_service_processors(procs);
             }
             Ok(rt)
         }

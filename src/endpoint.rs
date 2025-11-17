@@ -25,7 +25,7 @@
 //! use allora::{endpoint::InMemoryEndpoint, Message, Exchange};
 //! use allora::endpoint::EndpointBuilder;
 //! let ep = EndpointBuilder::in_out().in_memory().build();
-//! #[cfg(feature="async")]
+//! #[cfg(feature = "async")]
 //! {
 //!     use allora::endpoint::Endpoint;
 //!     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -34,7 +34,7 @@
 //!         assert_eq!(ep.try_receive_async().await.unwrap().in_msg.body_text(), Some("A"));
 //!     });
 //! }
-//! #[cfg(not(feature="async"))]
+//! #[cfg(not(feature = "async"))]
 //! {
 //!     use allora::endpoint::Endpoint;
 //!     ep.send(Exchange::new(Message::from_text("A"))).unwrap();
@@ -75,32 +75,32 @@ pub enum EndpointSource {
     },
 }
 impl EndpointSource {
-    pub(crate) fn apply_headers(&self, ex: &mut Exchange) {
+    pub(crate) fn apply_headers(&self, exchange: &mut Exchange) {
         match self {
             EndpointSource::Http {
                 adapter_id,
                 method,
                 path,
             } => {
-                if ex.in_msg.header("source.kind").is_none() {
-                    ex.in_msg.set_header("source.kind", "http");
+                if exchange.in_msg.header("source.kind").is_none() {
+                    exchange.in_msg.set_header("source.kind", "http");
                 }
-                if ex.in_msg.header("source.adapter_id").is_none() {
-                    ex.in_msg.set_header("source.adapter_id", adapter_id);
+                if exchange.in_msg.header("source.adapter_id").is_none() {
+                    exchange.in_msg.set_header("source.adapter_id", adapter_id);
                 }
-                if ex.in_msg.header("source.http.method").is_none() {
-                    ex.in_msg.set_header("source.http.method", method);
+                if exchange.in_msg.header("source.http.method").is_none() {
+                    exchange.in_msg.set_header("source.http.method", method);
                 }
-                if ex.in_msg.header("source.http.path").is_none() {
-                    ex.in_msg.set_header("source.http.path", path);
+                if exchange.in_msg.header("source.http.path").is_none() {
+                    exchange.in_msg.set_header("source.http.path", path);
                 }
             }
             EndpointSource::Channel { channel_id } => {
-                if ex.in_msg.header("source.kind").is_none() {
-                    ex.in_msg.set_header("source.kind", "channel");
+                if exchange.in_msg.header("source.kind").is_none() {
+                    exchange.in_msg.set_header("source.kind", "channel");
                 }
-                if ex.in_msg.header("source.channel_id").is_none() {
-                    ex.in_msg.set_header("source.channel_id", channel_id);
+                if exchange.in_msg.header("source.channel_id").is_none() {
+                    exchange.in_msg.set_header("source.channel_id", channel_id);
                 }
             }
         }

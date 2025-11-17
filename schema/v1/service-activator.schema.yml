@@ -1,0 +1,56 @@
+# Allora Service Activator DSL Schema (v1)
+# Renamed from service_activator.schema.yml to clarify activator role.
+# Defines a single service activator (processor) that consumes messages from one channel,
+# executes custom Rust logic, and forwards resulting messages to an outbound channel.
+
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "local://schemas/v1/service-activator.schema.yml"
+
+title: "Allora Service Activator Specification v1"
+description: "Executable service activator binding logic between an inbound and outbound channel"
+type: object
+required: [ version, service-activator ]
+additionalProperties: false
+
+properties:
+  version:
+    type: integer
+    const: 1
+    description: "Schema version (must be 1)."
+
+  service-activator:
+    type: object
+    description: "Service activator definition block"
+    required: [ ref-name, from, to ]
+    additionalProperties: false
+    properties:
+      id:
+        type: string
+        minLength: 1
+        description: |
+          Optional explicit service identifier. Must be a non-empty string if provided.
+          Uniqueness is enforced during build (duplicate ids cause an error). When omitted
+          the runtime may assign a deterministic auto id.
+      ref-name:
+        type: string
+        minLength: 1
+        description: |
+          Reference name mapping to the macro #[service(name=...)] identifier.
+          Must match the `name` submitted via #[service]; defaults to concrete type name.
+          Not required to be a file path.
+      from:
+        type: string
+        minLength: 1
+        description: "Inbound channel id the service consumes messages from."
+      to:
+        type: string
+        minLength: 1
+        description: "Outbound channel id the service publishes (processed) messages to."
+
+examples:
+  - version: 1
+    service-activator:
+      id: hello_world
+      ref-name: hello_world
+      from: inbound.orders
+      to: vetted.orders

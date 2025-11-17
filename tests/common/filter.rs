@@ -13,6 +13,6 @@ use allora::{patterns::filter::Filter, Exchange, Message};
 /// Apply a `Filter` to a new `Exchange` built from a text body.
 #[allow(dead_code)]
 pub fn apply(filter: &Filter, body: &str) -> bool {
-    let ex = Exchange::new(Message::from_text(body));
-    filter.accepts(&ex)
+    let exchange = Exchange::new(Message::from_text(body));
+    filter.accepts(&exchange)
 }

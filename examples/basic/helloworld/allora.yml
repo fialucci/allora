@@ -2,3 +2,9 @@
 version: 1
 channels:
   - id: hello_channel
+  - id: processed_channel
+service-activators:
+  - id: svc.hello
+    ref-name: hello_world
+    from: hello_channel
+    to: processed_channel
