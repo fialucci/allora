@@ -1,4 +1,4 @@
-use allora::{error::Result, message::Payload, service, Exchange, Service};
+use allora::{service, Exchange, Payload, Result, Service};
 
 #[derive(Clone, Debug)]
 pub struct HelloService;

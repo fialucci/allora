@@ -1,4 +1,4 @@
-use allora::spec::FiltersSpecYamlParser;
+use allora_runtime::spec::FiltersSpecYamlParser;
 
 #[test]
 fn filters_spec_yaml_parse_success() {

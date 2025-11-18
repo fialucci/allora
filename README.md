@@ -105,7 +105,7 @@ Early scaffold (`0.1.x`). APIs will evolve; expect breaking changes before 1.0. 
 - Core EIP patterns implemented first: Filter, Content-Based Router, Splitter, Aggregator, Recipient List, Correlation
   Initializer.
 - Clear correlation & message ID semantics without magic/reflection.
-- First-class asynchronous processing (Tokio) behind feature flags.
+- First-class asynchronous processing (Tokio) always enabled.
 - Minimal dependencies; explicitness over implicit side effects.
 
 ## Installation
@@ -114,39 +114,35 @@ Add to your `Cargo.toml` using the GitHub repo (until published on crates.io):
 
 ```toml
 # Latest main branch (may be unstable)
-allora = { git = "https://github.com/fialucci/allora", features = ["async", "http"] }
+allora = { git = "https://github.com/fialucci/allora" }
 ```
 
 Pin to a tagged release (recommended for reproducible builds):
 
 ```toml
-allora = { git = "https://github.com/fialucci/allora", tag = "v0.1.0", features = ["async", "http"] }
+allora = { git = "https://github.com/fialucci/allora", tag = "v0.1.0" }
 ```
 
 Or pin to a specific commit:
 
 ```toml
-allora = { git = "https://github.com/fialucci/allora", rev = "<commit-sha>", features = ["async", "http"] }
+allora = { git = "https://github.com/fialucci/allora", rev = "<commit-sha>" }
 ```
 
 Local path development:
 
 ```toml
-allora = { path = "../allora", features = ["async", "http"] }
-```
-
-Disable all optional features (pure sync, no HTTP):
-
-```toml
-allora = { git = "https://github.com/fialucci/allora", default-features = false }
+allora = { path = "../allora" }
 ```
 
 ## Feature Flags
 
-| Feature | Default | Purpose                                                  |
-|---------|---------|----------------------------------------------------------|
-| `async` | yes     | Async channel & processor support (Tokio + async-trait). |
-| `http`  | yes     | HTTP inbound adapter (feature-gated)                     |
+| Feature | Default | Purpose                      |
+|---------|---------|------------------------------|
+| `http`  | yes     | HTTP inbound adapter support |
+
+The project is permanently async; there is no `async` feature flag anymore. Tokio and related async capabilities are
+always compiled in.
 
 > Note: `serde` is a required dependency (always compiled in) for message/exchange (de)serialization and is not
 > controlled by a feature flag. There is currently no way to disable it via Cargo features.

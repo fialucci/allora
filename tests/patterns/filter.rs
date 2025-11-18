@@ -1,16 +1,11 @@
-use allora::{
-    patterns::filter::Filter, processor::ClosureProcessor, route::Route, Error, Exchange, Message,
-};
+use allora::{patterns::filter::Filter, Exchange, Message};
 
-#[cfg(feature = "async")]
-fn run_route(route: &Route, exchange: &mut Exchange) -> allora::Result<()> {
-    tokio::runtime::Runtime::new()
-        .unwrap()
-        .block_on(route.run(exchange))
-}
-#[cfg(not(feature = "async"))]
-fn run_route(route: &Route, exchange: &mut Exchange) -> allora::Result<()> {
-    route.run(exchange)
+#[tokio::test]
+async fn filter_predicate() {
+    let filt = Filter::new(|ex| ex.in_msg.body_text() == Some("pass"));
+    let mut ex = Exchange::new(Message::from_text("pass"));
+    filt.process_sync(&mut ex).unwrap();
+    assert_eq!(ex.in_msg.body_text(), Some("pass"));
 }
 
 // Test custom error message path

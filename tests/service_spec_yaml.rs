@@ -1,4 +1,4 @@
-use allora::spec::ServiceSpecYamlParser;
+use allora_runtime::spec::ServiceSpecYamlParser;
 
 #[test]
 fn service_spec_yaml_parse_success_with_id() {

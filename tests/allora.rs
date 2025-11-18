@@ -1,4 +1,4 @@
-use allora::{Allora, Result};
+use allora_runtime::{Result, Runtime};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
@@ -21,7 +21,7 @@ fn multi_spec() -> &'static str {
 fn builds_with_explicit_path() -> Result<()> {
     let td = TempDir::new().expect("tempdir");
     let spec_path = write_spec(td.path(), "custom.yml", multi_spec());
-    let runtime = Allora::new().with_config_file(&spec_path).run()?;
+    let runtime = Runtime::new().with_config_file(&spec_path).run()?;
     assert_eq!(runtime.channel_count(), 3);
     Ok(())
 }
@@ -33,7 +33,7 @@ fn missing_config_errors() {
     let missing = td
         .path()
         .join(format!("missing_{}.yml", uuid::Uuid::new_v4()));
-    let err = Allora::new().with_config_file(&missing).run().unwrap_err();
+    let err = Runtime::new().with_config_file(&missing).run().unwrap_err();
     let msg = format!("{}", err);
     assert!(
         msg.to_lowercase().contains("config file"),
@@ -56,7 +56,7 @@ fn explicit_path_finds_nested_config() -> Result<()> {
     let config_path = write_spec(&level2, "deep.yml", minimal_spec());
 
     // Should work with explicit path regardless of CWD
-    let runtime = Allora::new().with_config_file(&config_path).run()?;
+    let runtime = Runtime::new().with_config_file(&config_path).run()?;
     assert_eq!(runtime.channel_count(), 1);
     Ok(())
 }
@@ -71,10 +71,10 @@ fn explicit_path_with_multiple_configs() -> Result<()> {
     let config2 = write_spec(td.path(), "config2.yml", multi_spec()); // 3 channels
 
     // Should load the specified config
-    let runtime1 = Allora::new().with_config_file(&config1).run()?;
+    let runtime1 = Runtime::new().with_config_file(&config1).run()?;
     assert_eq!(runtime1.channel_count(), 1);
 
-    let runtime2 = Allora::new().with_config_file(&config2).run()?;
+    let runtime2 = Runtime::new().with_config_file(&config2).run()?;
     assert_eq!(runtime2.channel_count(), 3);
 
     Ok(())
@@ -90,7 +90,7 @@ fn canonical_path_computed_when_file_exists() -> Result<()> {
     // The config should exist and be canonicalizable
     assert!(spec_path.exists(), "Config file should exist");
 
-    let runtime = Allora::new().with_config_file(&spec_path).run()?;
+    let runtime = Runtime::new().with_config_file(&spec_path).run()?;
     assert_eq!(runtime.channel_count(), 1);
     Ok(())
 }
@@ -103,6 +103,6 @@ fn non_canonical_path_handled_correctly() {
     let missing = td.path().join("non_existent.yml");
 
     // Should not panic on canonicalize attempt
-    let result = Allora::new().with_config_file(&missing).run();
+    let result = Runtime::new().with_config_file(&missing).run();
     assert!(result.is_err(), "Should error for non-existent config");
 }

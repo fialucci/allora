@@ -1,0 +1,21 @@
+[package]
+name = "allora-macros"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Allora Contributors"]
+description = "Procedural macros for Allora (#[service]) to register service activators via inventory."
+repository = "https://github.com/fialucci/allora"
+homepage = "https://github.com/fialucci/allora"
+documentation = "https://docs.rs/allora-macros"
+readme = "README.md"
+keywords = ["proc-macro", "service", "inventory", "integration"]
+categories = ["development-tools::procedural-macro"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"

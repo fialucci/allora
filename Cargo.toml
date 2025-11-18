@@ -1,51 +1,26 @@
-[package]
-name = "allora"
+[workspace]
+members = [
+    "crates/core",
+    "crates/http",
+    "crates/macros",
+    "crates/runtime",
+    "crates/allora",
+    "examples/basic/helloworld"
+]
+resolver = "2"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
-authors = ["Allora Contributors"]
-description = "Allora: A Rust-native library implementing Enterprise Integration Patterns (EIP) for building message routing and mediation components. An Open Source integration framework that helps you connect everything into one continuous, high-performance flow."
 license = "Apache-2.0"
-repository = "https://example.com/allora"
-readme = "README.md"
-keywords = ["integration", "eip", "messaging", "routing"]
-categories = ["network-programming", "asynchronous"]
 
-[lib]
-name = "allora"
-path = "src/lib.rs"
-
-[features]
-# Default features expanded so `cargo test` exercises async + http paths.
-default = ["async", "http"]
-async = ["tokio", "async-trait"]
-http = ["hyper", "async"]
-
-[dependencies]
-async-trait = { version = "0.1", optional = true }
-thiserror = "1.0"
-futures = "0.3"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+[workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-serde_yaml = "0.9"
-hyper = { version = "0.14", features = ["full"], optional = true }
+tracing = "0.1"
 uuid = { version = "1.8", features = ["v4"] }
-regex = "1"
-once_cell = "1.19"
-allora-macros = { path = "./allora-macros" }
-inventory = "0.3"
-
-[dependencies.tokio]
-version = "1.39"
-features = ["rt", "rt-multi-thread", "macros", "sync"]
-optional = true
-
-[dev-dependencies]
-tempfile = "3"
-trybuild = "1.0"
 async-trait = "0.1"
+allora-runtime = { path = "crates/runtime" }
+allora = { path = "crates/allora" }
 
-[package.metadata.cargo-alias]
-# Run full test suite including HTTP feature tests: cargo test-http
-test-http = "test --features http"
+[patch.crates-io]
+# (optional) override if publishing internal crates later

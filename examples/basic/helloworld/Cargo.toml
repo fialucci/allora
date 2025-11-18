@@ -6,10 +6,10 @@ license = "Apache-2.0"
 publish = false
 
 [dependencies]
-allora = { path = "../../../", features = ["async"] }
-inventory = "0.3"
+allora = { workspace = true }
 tokio = { version = "1.39", features = ["rt", "rt-multi-thread", "macros"] }
 async-trait = "0.1"
+inventory = "0.3"
 
 [profile.dev]
 opt-level = 0          # light optimization to keep runtime reasonable

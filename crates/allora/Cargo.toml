@@ -1,0 +1,21 @@
+[package]
+name = "allora"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "allora"
+path = "src/lib.rs"
+
+[features]
+default = ["runtime", "http"]
+http = ["allora-http"]
+runtime = ["allora-runtime"]
+
+[dependencies]
+allora-core = { path = "../core" }
+allora-runtime = { path = "../runtime", optional = true }
+allora-http = { path = "../http", optional = true }
+allora-macros = { path = "../macros" }
+inventory = "0.3"

@@ -1,4 +1,4 @@
-use allora::message::{Exchange, Message, Payload};
+use allora_core::{Exchange, Message, Payload};
 
 #[test]
 fn payload_variants_and_accessors() {

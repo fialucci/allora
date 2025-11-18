@@ -5,7 +5,7 @@ use allora::dsl::component_builders::{
 use allora::spec::{
     ChannelSpec, ChannelsSpec, FilterSpec, FiltersSpec, ServiceActivatorSpec, ServiceActivatorsSpec,
 };
-use allora::{Exchange, Message, SyncProcessor};
+use allora::{Exchange, Message};
 
 #[test]
 fn single_filter_builder_preserves_explicit_id() {
@@ -64,8 +64,8 @@ fn channels_explicit_reserved_like_prefix_does_not_shift_sequence() {
     assert!(ids.contains(&"channel:auto.3".to_string()));
 }
 
-#[test]
-fn services_explicit_reserved_numeric_advances_sequence() {
+#[tokio::test]
+async fn services_explicit_reserved_numeric_advances_sequence() {
     let spec = ServiceActivatorsSpec::new(1)
         .add(ServiceActivatorSpec::with_id(
             "service:auto.3",
@@ -77,21 +77,21 @@ fn services_explicit_reserved_numeric_advances_sequence() {
     let built = build_service_activators_from_spec(spec).expect("build services");
     assert_eq!(built.len(), 2);
     let mut ex0 = Exchange::new(Message::from_text("x"));
-    built[0].process_sync(&mut ex0).unwrap();
+    built[0].process(&mut ex0).await.unwrap();
     assert_eq!(
         ex0.in_msg.header("service-activator.id"),
         Some("service:auto.3")
     );
     let mut ex1 = Exchange::new(Message::from_text("y"));
-    built[1].process_sync(&mut ex1).unwrap();
+    built[1].process(&mut ex1).await.unwrap();
     assert_eq!(
         ex1.in_msg.header("service-activator.id"),
         Some("service:auto.4")
     );
 }
 
-#[test]
-fn services_malformed_reserved_prefix_ignored_for_sequence() {
+#[tokio::test]
+async fn services_malformed_reserved_prefix_ignored_for_sequence() {
     let spec = ServiceActivatorsSpec::new(1)
         .add(ServiceActivatorSpec::with_id(
             "service:auto.bad",
@@ -103,25 +103,25 @@ fn services_malformed_reserved_prefix_ignored_for_sequence() {
     let built = build_service_activators_from_spec(spec).expect("build services");
     assert_eq!(built.len(), 2);
     let mut ex0 = Exchange::new(Message::from_text("x"));
-    built[0].process_sync(&mut ex0).unwrap();
+    built[0].process(&mut ex0).await.unwrap();
     assert_eq!(
         ex0.in_msg.header("service-activator.id"),
         Some("service:auto.bad")
     );
     let mut ex1 = Exchange::new(Message::from_text("y"));
-    built[1].process_sync(&mut ex1).unwrap();
+    built[1].process(&mut ex1).await.unwrap();
     assert_eq!(
         ex1.in_msg.header("service-activator.id"),
         Some("service:auto.1")
     );
 }
 
-#[test]
-fn build_service_from_spec_validation_positive_path() {
+#[tokio::test]
+async fn build_service_from_spec_validation_positive_path() {
     let spec = ServiceActivatorSpec::new("impl/x.rs", "in.x", "out.x");
     let proc = build_service_from_spec(spec).expect("valid build");
     let mut exchange = Exchange::new(Message::from_text("ping"));
-    proc.process_sync(&mut exchange).unwrap();
+    proc.process(&mut exchange).await.unwrap();
     assert_eq!(
         exchange.in_msg.header("service-activator.ref-name"),
         Some("impl/x.rs")
