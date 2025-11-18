@@ -13,8 +13,8 @@ impl HelloService {
 #[async_trait::async_trait]
 impl Service for HelloService {
     async fn process(&self, exchange: &mut Exchange) -> Result<()> {
-        if let Some(body) = exchange.in_msg.body_text() {
-            exchange.in_msg.payload = Payload::Text(format!("Hello {body}!"));
+        if let Some(name) = exchange.in_msg.body_text() {
+            exchange.in_msg.payload = Payload::Text(format!("Hello {name}!"));
         }
         Ok(())
     }
