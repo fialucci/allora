@@ -1,4 +1,3 @@
-use allora::channel::SubscribableChannel;
 use allora::{Channel, DirectChannel, Error, Exchange, Message};
 use std::sync::{Arc, Mutex};
 

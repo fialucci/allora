@@ -211,9 +211,8 @@ impl InOutQueueEndpointBuilder {
         self.source = Some(EndpointSource::Channel {
             channel_id: channel.id().to_string(),
         });
-        // store as trait object
-        let obj: ChannelRef = Arc::clone(channel);
-        self.channel = Some(obj);
+        // implicit unsize coercion Arc<T> -> Arc<dyn Channel>
+        self.channel = Some(channel.clone());
         self
     }
     pub fn build(self) -> Arc<InMemoryEndpoint> {
