@@ -1,5 +1,5 @@
-# Allora Channel DSL Schema (documentation-only, v1, pure pipe)
-# Minimal structure required to build an in-memory channel.
+# Allora Channel DSL Schema (documentation-only, v1)
+# Minimal structure required to declare a single channel (direct or queue).
 
 # schemas/v1/channel-config.schema.yaml
 $schema: "https://json-schema.org/draft/2020-12/schema"
@@ -23,9 +23,8 @@ properties:
     properties:
       kind:
         type: string
-        enum: [ queue ]
-        default: queue     # if 'kind' missing inside 'channel'
+        enum: [ direct, queue ]  # both supported by runtime
+        default: direct          # parser currently defaults to 'direct' when absent
       id:
         type: string
-        minLength: 1           # optional; no default here
-
+        minLength: 1             # optional; no default here

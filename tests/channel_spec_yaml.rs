@@ -233,6 +233,6 @@ channel:
     );
     let chan = build_channel(tmp.path()).expect("channel builds");
     assert_eq!(chan.id(), "default-kind");
-    // Internally still 'queue' variant.
+    // Defaults to 'direct' when kind is not specified.
     assert_eq!(chan.kind(), "direct");
 }

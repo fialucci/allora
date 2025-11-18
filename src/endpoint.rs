@@ -212,7 +212,7 @@ impl InOutQueueEndpointBuilder {
             channel_id: channel.id().to_string(),
         });
         // store as trait object
-        let obj: ChannelRef = Arc::clone(channel) as ChannelRef;
+        let obj: ChannelRef = Arc::clone(channel);
         self.channel = Some(obj);
         self
     }
