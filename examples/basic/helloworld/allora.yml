@@ -1,10 +1,11 @@
 # Allora HelloWorld example - single channel configuration
 version: 1
 channels:
-  - id: hello_channel
-  - id: processed_channel
+  - id: input_channel
+  - id: output_channel
+    kind: queue
 service-activators:
   - id: svc.hello
     ref-name: hello_world
-    from: hello_channel
-    to: processed_channel
+    from: input_channel
+    to: output_channel

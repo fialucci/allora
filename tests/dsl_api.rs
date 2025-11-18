@@ -3,7 +3,7 @@ use allora::{build_channel, Error};
 mod temp;
 use temp::{temp_with_ext, temp_yaml};
 
-/// GIVEN a valid YAML channel spec file (version 1, in_memory, id = path-yml)
+/// GIVEN a valid YAML channel spec file (version 1, queue, id = path-yml)
 /// WHEN we build the channel from the file path (format inferred from .yml extension)
 /// THEN the resulting channel id matches the spec
 #[test]

@@ -17,7 +17,7 @@
 //!
 //! # Goals
 //! * Clear separation between parsing, specification, and instantiation.
-//! * Programmatic construction (e.g. `ChannelSpec::in_memory().id("orders")`) without YAML.
+//! * Programmatic construction (e.g. `ChannelSpec::queue().id("orders")`) without YAML.
 //! * Non-breaking extension path for new components (add new spec + parser; do not alter existing semantics).
 //!
 //! # Versioning Strategy
@@ -33,7 +33,7 @@
 //! ```rust
 //! use allora::{build_channel_from_str, spec::ChannelSpec, Channel, DslFormat};
 //! // Programmatic spec
-//! let spec = ChannelSpec::in_memory().id("prog-demo");
+//! let spec = ChannelSpec::queue().id("prog-demo");
 //! assert_eq!(spec.channel_id(), Some("prog-demo"));
 //! // YAML parsed via facade (no need to construct spec manually)
 //! let raw = "version: 1\nchannel:\n  kind: direct\n  id: parsed-demo";

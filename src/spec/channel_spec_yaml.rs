@@ -104,11 +104,17 @@ impl ChannelSpecYamlParser {
             return Err(Error::serialization("'channel' must be a mapping"));
         }
         let kind_spec = if let Some(kind) = channel.get("kind") {
-            let kind_str = kind.as_str().ok_or_else(|| Error::serialization("channel.kind must be string"))?;
+            let kind_str = kind
+                .as_str()
+                .ok_or_else(|| Error::serialization("channel.kind must be string"))?;
             match kind_str {
                 "direct" => ChannelKindSpec::Direct,
-                "in_memory" => ChannelKindSpec::InMemory,
-                other => return Err(Error::serialization(format!("unsupported channel.kind '{other}'"))),
+                "queue" => ChannelKindSpec::Queue,
+                other => {
+                    return Err(Error::serialization(format!(
+                        "unsupported channel.kind '{other}'"
+                    )))
+                }
             }
         } else {
             tracing::info!("channel.kind missing; defaulting to 'direct'");

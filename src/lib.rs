@@ -66,6 +66,7 @@
 
 pub mod adapter; // generic inbound adapter abstractions (file adapter.rs)
 pub mod allora;
+#[path = "channel/mod.rs"]
 pub mod channel;
 pub mod dsl; // new multi-format DSL facade (yaml/json/xml)
 pub mod endpoint;
@@ -89,10 +90,7 @@ pub use adapter::{
 };
 pub use allora::Allora;
 pub use allora_macros::service;
-pub use channel::{
-    Channel, ChannelBuilder, ChannelRef, CorrelationSupport, DefaultChannel, DirectChannel,
-    DirectChannelBuilder, InMemoryChannel, OutboundQueue,
-};
+pub use channel::{Channel, ChannelRef, DirectChannel, QueueChannel};
 pub use dsl::runtime::AlloraRuntime;
 pub use dsl::{
     build, build_channel, build_channel_from_str, build_filter, build_service, DslFormat,

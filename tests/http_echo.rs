@@ -1,13 +1,13 @@
 #![cfg(feature = "http")]
 use allora::adapter::Adapter;
-use allora::channel::ChannelBuilder;
+use allora::channel::{ChannelRef, PollableChannel, QueueChannel};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn http_echo_single_request_and_shutdown() {
-    // Channel is now a pure pipe; no internal route processing required.
-    let channel = Arc::new(ChannelBuilder::point_to_point().in_memory().build());
+    let queue_channel = Arc::new(QueueChannel::with_random_id());
+    let channel_ref: ChannelRef = queue_channel.clone();
 
     // Use a fixed high port; in real tests consider dynamic port allocation.
     let addr: SocketAddr = "127.0.0.1:31001".parse().unwrap();
@@ -15,7 +15,7 @@ async fn http_echo_single_request_and_shutdown() {
         .http()
         .host("127.0.0.1")
         .port(31001)
-        .channel(channel.clone())
+        .channel(channel_ref.clone())
         .build();
     let server_handle = adapter.spawn_once();
 
@@ -36,9 +36,7 @@ async fn http_echo_single_request_and_shutdown() {
     let bytes = hyper::body::to_bytes(resp.into_body()).await.unwrap();
     assert_eq!(&bytes[..], b"hello");
 
-    // Assert the channel received exactly one Exchange with expected attributes.
-    use allora::OutboundQueue; // trait for try_receive_async
-    let exchange = channel
+    let exchange = queue_channel
         .try_receive_async()
         .await
         .expect("exchange enqueued");
@@ -59,8 +57,8 @@ async fn http_echo_single_request_and_shutdown() {
     // Mirror header (correlation_id) should match
     assert_eq!(exchange.in_msg.header("correlation_id"), Some(corr_id));
     // Queue should now be empty
-    assert!(channel.try_receive_async().await.is_none());
+    assert!(queue_channel.try_receive_async().await.is_none());
 
-    // Ensure server task completes (graceful shutdown after single request).
+    // Ensure the server task completes (graceful shutdown after a single request).
     server_handle.await.expect("server task join");
 }

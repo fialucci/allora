@@ -1,23 +1,26 @@
-use allora::{channel::ChannelBuilder, Channel};
+use allora::{Channel, DirectChannel, Exchange, Message};
 
 #[test]
-fn point_to_point_stage_direct_builds_direct_channel() {
-    let dc = ChannelBuilder::point_to_point()
-        .direct()
-        .id("builder-direct")
-        .build();
-    // Type inference ensures dc is DirectChannel; confirm id prefix or set id.
+fn direct_channel_explicit_id_and_dispatch() {
+    let dc = DirectChannel::with_id("builder-direct");
     assert_eq!(dc.id(), "builder-direct");
-    // Ensure kind accessor if implemented (currently only via ChannelInfo for DirectChannel).
-    assert_eq!(allora::Channel::kind(&dc), "direct");
-    // Dispatch semantics: subscribe & send
+    assert_eq!(Channel::kind(&dc), "direct");
     let hits = std::sync::Arc::new(std::sync::Mutex::new(0));
     let hits_cl = hits.clone();
     dc.subscribe(move |_ex| {
         *hits_cl.lock().unwrap() += 1;
         Ok(())
     });
-    dc.send(allora::Exchange::new(allora::Message::from_text("ping")))
-        .unwrap();
+    #[cfg(not(feature = "async"))]
+    dc.send(Exchange::new(Message::from_text("ping"))).unwrap();
+    #[cfg(feature = "async")]
+    {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            dc.send_async(Exchange::new(Message::from_text("ping")))
+                .await
+                .unwrap();
+        });
+    }
     assert_eq!(*hits.lock().unwrap(), 1);
 }

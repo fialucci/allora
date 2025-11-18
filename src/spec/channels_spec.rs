@@ -14,8 +14,8 @@
 //! ```rust
 //! use allora::spec::{ChannelsSpec, ChannelSpec};
 //! let spec = ChannelsSpec::new(1)
-//!     .add(ChannelSpec::in_memory().id("orders"))
-//!     .add(ChannelSpec::in_memory().id("payments"));
+//!     .add(ChannelSpec::queue().id("orders"))
+//!     .add(ChannelSpec::queue().id("payments"));
 //! assert_eq!(spec.channels().len(), 2);
 //! ```
 //!

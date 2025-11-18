@@ -204,78 +204,92 @@ async fn main() -> allora::Result<()> {
 
 ## Channels
 
-Current implementation: a simple in-memory pipe built via a staged builder. Channels enqueue and dequeue `Exchange`
-instances; processing (filters, routes, patterns) occurs before sending or after receiving.
+Two channel implementations provide distinct semantics:
 
-### Sync Example (without `async` feature)
+| Channel         | Buffering | Subscribers | Dequeue API | Correlation Helpers | Typical Use                              |
+|-----------------|-----------|-------------|-------------|---------------------|------------------------------------------|
+| `DirectChannel` | None      | Yes         | No          | No                  | Immediate fan-out / in-memory pub-sub    |
+| `QueueChannel`  | FIFO      | No          | Yes         | Yes                 | Decoupling, request/reply, async handoff |
+
+Construction is explicit:
 
 ```rust
-use allora::channel::{Channel, ChannelBuilder, OutboundQueue};
-use allora::{Exchange, Message};
+use allora::{DirectChannel, QueueChannel};
+let dc = DirectChannel::with_random_id();
+let qc = QueueChannel::with_id("events");
+```
 
-fn example() -> allora::Result<()> {
-    let ch = ChannelBuilder::point_to_point()
-        .in_memory()
-        .id("hello_channel")
-        .build();
+Send/Receive (sync mode shown for brevity; async adds `*_async` variants):
 
-    ch.send(Exchange::new(Message::from_text("Hello World!")))?;
-    let exchange = ch.try_receive().expect("exchange present");
-    assert_eq!(exchange.in_msg.body_text(), Some("Hello World!"));
+```rust
+use allora::{Exchange, Message, DirectChannel, QueueChannel};
+use allora::channel::PollableChannel; // for try_receive
+let dc = DirectChannel::with_id("notifications");
+let qc = QueueChannel::with_random_id();
+// fan-out to subscribers
+dc.subscribe( | ex| { assert_eq ! (ex.in_msg.body_text(), Some("ping")); Ok(()) });
+dc.send(Exchange::new(Message::from_text("ping"))) ?;
+// buffered receive
+qc.send(Exchange::new(Message::from_text("work"))) ?;
+let ex = qc.try_receive().expect("queued message");
+```
+
+Async example:
+
+```rust
+use allora::{Exchange, Message, DirectChannel, QueueChannel, Channel};
+use allora::channel::PollableChannel;
+#[tokio::main]
+async fn main() -> allora::Result<()> {
+    let dc = DirectChannel::with_random_id();
+    dc.subscribe(|ex| {
+        assert_eq!(ex.in_msg.body_text(), Some("ping"));
+        Ok(())
+    });
+    dc.send_async(Exchange::new(Message::from_text("ping"))).await?;
+    let qc = QueueChannel::with_id("jobs");
+    qc.send_async(Exchange::new(Message::from_text("job"))).await?;
+    let ex = qc.try_receive_async().await.expect("job present");
+    assert_eq!(ex.in_msg.body_text(), Some("job"));
     Ok(())
 }
 ```
 
-### Async Example (with `async` feature, default)
+Correlation (QueueChannel only):
 
 ```rust
-use allora::channel::{Channel, ChannelBuilder, OutboundQueue};
-use allora::{Exchange, Message};
-
-#[tokio::main]
-async fn main() -> allora::Result<()> {
-    let ch = ChannelBuilder::point_to_point()
-        .in_memory()
-        .id("hello_channel")
-        .build();
-
-    ch.send_async(Exchange::new(Message::from_text("Hello World!"))).await?;
-    let exchange = ch.try_receive_async().await.expect("exchange present");
-    assert_eq!(exchange.in_msg.body_text(), Some("Hello World!"));
-    Ok(())
-}
+use allora::{Exchange, Message, QueueChannel};
+use allora::channel::CorrelationSupport;
+let q = QueueChannel::with_random_id();
+let corr = q.send_with_correlation(Exchange::new(Message::from_text("req"))) ?;
+let ex = q.receive_by_correlation( & corr).expect("reply");
 ```
 
 ### Current Limitations
 
-- Only in-memory channels (no persistence / backpressure queues yet)
-- No direct route binding; application invokes routes around channel operations
+- No persistent / disk-backed queues yet
+- No backpressure or capacity controls
+- DirectChannel errors short-circuit subscriber invocation (first error stops fan-out)
 
 ## HTTP Inbound Adapter (`http` feature)
 
-> **Note:** This example spawns a server that runs indefinitely. It's provided for illustration;
-> in production you'd need proper shutdown handling or run it in a background task.
+> **Note:** Example runs a server; production code should add graceful shutdown.
 
 ```rust,no_run
 use allora::{Exchange, Message};
-use allora::channel::{ChannelBuilder, Channel};
+use allora::channel::QueueChannel;
 use allora::adapter::Adapter; // inbound adapter facade
-
 #[tokio::main]
 async fn main() -> allora::Result<()> {
-    // Build a channel to receive HTTP-translated Exchanges.
-    let ch = ChannelBuilder::point_to_point().in_memory().id("http-pipe").build();
+    let channel = QueueChannel::with_id("http-pipe");
     let adapter = Adapter::inbound()
         .http()
         .host("127.0.0.1")
         .port(0)
-        .channel(std::sync::Arc::new(ch))
-        .in_only_202() // return 202 immediately; process asynchronously
+        .channel(std::sync::Arc::new(channel))
+        .in_only_202()
         .build();
-
-    // (InOnly202) fire-and-forget; server runs until aborted.
     let _handle = adapter.serve();
-    // For graceful shutdown: handle.abort();
     Ok(())
 }
 ```

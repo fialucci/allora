@@ -4,7 +4,7 @@
 //!
 //! # Purpose
 //! Bridge the gap between a format-specific parsed spec (e.g. YAML -> `ChannelSpec`) and the
-//! actual runtime component (e.g. `InMemoryChannel`). Parsing & validation happen elsewhere
+//! actual runtime component (e.g. `QueueChannel`). Parsing & validation happen elsewhere
 //! (under `spec/` parsers). Builders assume the spec is structurally valid and focus solely on
 //! instantiation and enforcing runtime constraints (like non-empty IDs).
 //!
@@ -19,14 +19,14 @@
 //! use allora::spec::ChannelSpec;
 //! use allora::dsl::component_builders::build_channel_from_spec;
 //! use allora::Channel; // bring trait into scope for channel.id()
-//! let spec = ChannelSpec::in_memory().id("example-channel");
+//! let spec = ChannelSpec::queue().id("example-channel");
 //! let channel = build_channel_from_spec(spec).unwrap();
 //! assert_eq!(channel.id(), "example-channel");
 //! ```
 //!
 //! # Auto-generated IDs (Single vs Multi Build)
 //! * Single channel (`build_channel_from_spec` when `spec.channel_id()` is `None`): underlying
-//!   `ChannelBuilder` assigns a UUID-based id (`channel:<uuid>`).
+//!   `QueueChannel::with_random_id()` assigns a UUID-based id (`queue:<uuid>`).
 //! * Multi-channel (`build_channels_from_spec`) with missing ids: this module generates
 //!   deterministic sequential ids of the form `channel:auto.<N>` starting at 1 and incrementing
 //!   for each missing id within that build invocation. The sequence resets each time you call
@@ -64,7 +64,7 @@
 //! refactors as new component types are added.
 
 use crate::{
-    channel::{Channel, ChannelBuilder},
+    channel::Channel,
     error::{Error, Result},
     patterns::filter::Filter,
     processor::ClosureProcessor,
@@ -112,22 +112,14 @@ fn build_channel_spec_internal(
 
     // Match kind -> builder (future kinds centralize here)
     let channel: Box<dyn Channel> = match spec.kind() {
-        ChannelKindSpec::InMemory => {
-            let builder = ChannelBuilder::point_to_point().in_memory();
-            let ch = match final_id {
-                Some(id) => builder.id(id).build(),
-                None => builder.build(),
-            };
-            Box::new(ch)
-        }
-        ChannelKindSpec::Direct => {
-            let builder = ChannelBuilder::point_to_point().direct();
-            let ch = match final_id {
-                Some(id) => builder.id(id).build(),
-                None => builder.build(),
-            };
-            Box::new(ch)
-        }
+        ChannelKindSpec::Queue => match final_id {
+            Some(id) => Box::new(crate::channel::QueueChannel::with_id(id)),
+            None => Box::new(crate::channel::QueueChannel::with_random_id()),
+        },
+        ChannelKindSpec::Direct => match final_id {
+            Some(id) => Box::new(crate::channel::DirectChannel::with_id(id)),
+            None => Box::new(crate::channel::DirectChannel::with_random_id()),
+        },
     };
     Ok(channel)
 }
