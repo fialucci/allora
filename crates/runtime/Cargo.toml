@@ -1,0 +1,40 @@
+[package]
+name = "allora-runtime"
+version = "0.1.0"
+edition = "2021"
+authors = ["Allora Contributors"]
+description = "Allora runtime and DSL implementation (internal crate)."
+license = "Apache-2.0"
+repository = "https://github.com/fialucci/allora"
+homepage = "https://github.com/fialucci/allora"
+documentation = "https://docs.rs/allora-runtime"
+readme = "README.md"
+keywords = ["integration", "runtime", "dsl"]
+categories = ["network-programming", "asynchronous"]
+
+[lib]
+name = "allora_runtime"
+path = "src/lib.rs"
+
+[features]
+default = ["http"]
+http = ["hyper"]
+
+[dependencies]
+tracing = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+hyper = { version = "0.14", features = ["full"], optional = true }
+inventory = "0.3"
+allora-core = { path = "../core" }
+allora-http = { path = "../http" }
+
+[dependencies.tokio]
+version = "1.39"
+features = ["rt", "rt-multi-thread", "macros", "sync"]
+
+[dev-dependencies]
+
+[package.metadata.cargo-alias]
+# Run full test suite including HTTP feature tests: cargo test-http
+test-http = "test --features http"

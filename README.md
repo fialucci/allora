@@ -105,7 +105,7 @@ Early scaffold (`0.1.x`). APIs will evolve; expect breaking changes before 1.0. 
 - Core EIP patterns implemented first: Filter, Content-Based Router, Splitter, Aggregator, Recipient List, Correlation
   Initializer.
 - Clear correlation & message ID semantics without magic/reflection.
-- First-class asynchronous processing (Tokio) behind feature flags.
+- First-class asynchronous processing (Tokio) always enabled.
 - Minimal dependencies; explicitness over implicit side effects.
 
 ## Installation
@@ -114,39 +114,35 @@ Add to your `Cargo.toml` using the GitHub repo (until published on crates.io):
 
 ```toml
 # Latest main branch (may be unstable)
-allora = { git = "https://github.com/fialucci/allora", features = ["async", "http"] }
+allora = { git = "https://github.com/fialucci/allora" }
 ```
 
 Pin to a tagged release (recommended for reproducible builds):
 
 ```toml
-allora = { git = "https://github.com/fialucci/allora", tag = "v0.1.0", features = ["async", "http"] }
+allora = { git = "https://github.com/fialucci/allora", tag = "v0.1.0" }
 ```
 
 Or pin to a specific commit:
 
 ```toml
-allora = { git = "https://github.com/fialucci/allora", rev = "<commit-sha>", features = ["async", "http"] }
+allora = { git = "https://github.com/fialucci/allora", rev = "<commit-sha>" }
 ```
 
 Local path development:
 
 ```toml
-allora = { path = "../allora", features = ["async", "http"] }
-```
-
-Disable all optional features (pure sync, no HTTP):
-
-```toml
-allora = { git = "https://github.com/fialucci/allora", default-features = false }
+allora = { path = "../allora" }
 ```
 
 ## Feature Flags
 
-| Feature | Default | Purpose                                                  |
-|---------|---------|----------------------------------------------------------|
-| `async` | yes     | Async channel & processor support (Tokio + async-trait). |
-| `http`  | yes     | HTTP inbound adapter (feature-gated)                     |
+| Feature | Default | Purpose                      |
+|---------|---------|------------------------------|
+| `http`  | yes     | HTTP inbound adapter support |
+
+The project is permanently async; there is no `async` feature flag anymore. Tokio and related async capabilities are
+always compiled in.
 
 > Note: `serde` is a required dependency (always compiled in) for message/exchange (de)serialization and is not
 > controlled by a feature flag. There is currently no way to disable it via Cargo features.
@@ -219,22 +215,29 @@ let dc = DirectChannel::with_random_id();
 let qc = QueueChannel::with_id("events");
 ```
 
-Send/Receive (sync mode shown for brevity; async adds `*_async` variants):
+Send/Receive (async-only API):
 
 ```rust
-use allora::{Exchange, Message, DirectChannel, QueueChannel};
-use allora::channel::PollableChannel; // for try_receive
-let dc = DirectChannel::with_id("notifications");
-let qc = QueueChannel::with_random_id();
-// fan-out to subscribers
-dc.subscribe( | ex| { assert_eq ! (ex.in_msg.body_text(), Some("ping")); Ok(()) });
-dc.send(Exchange::new(Message::from_text("ping"))) ?;
-// buffered receive
-qc.send(Exchange::new(Message::from_text("work"))) ?;
-let ex = qc.try_receive().expect("queued message");
+use allora::channel::PollableChannel;
+use allora::{DirectChannel, Exchange, Message, QueueChannel};
+#[tokio::main]
+async fn main() -> allora::Result<()> {
+    let dc = DirectChannel::with_id("notifications");
+    let qc = QueueChannel::with_random_id();
+    // fan-out to subscribers
+    dc.subscribe(|ex| {
+        assert_eq!(ex.in_msg.body_text(), Some("ping"));
+        Ok(())
+    });
+    dc.send(Exchange::new(Message::from_text("ping"))).await?;
+    qc.send(Exchange::new(Message::from_text("work"))).await?;
+    let ex = qc.try_receive().await.expect("queued message");
+    assert_eq!(ex.in_msg.body_text(), Some("work"));
+    Ok(())
+}
 ```
 
-Async example:
+Example (additional):
 
 ```rust
 use allora::{Exchange, Message, DirectChannel, QueueChannel, Channel};
@@ -246,10 +249,10 @@ async fn main() -> allora::Result<()> {
         assert_eq!(ex.in_msg.body_text(), Some("ping"));
         Ok(())
     });
-    dc.send_async(Exchange::new(Message::from_text("ping"))).await?;
+    dc.send(Exchange::new(Message::from_text("ping"))).await?;
     let qc = QueueChannel::with_id("jobs");
-    qc.send_async(Exchange::new(Message::from_text("job"))).await?;
-    let ex = qc.try_receive_async().await.expect("job present");
+    qc.send(Exchange::new(Message::from_text("job"))).await?;
+    let ex = qc.try_receive().await.expect("job present");
     assert_eq!(ex.in_msg.body_text(), Some("job"));
     Ok(())
 }
@@ -260,9 +263,14 @@ Correlation (QueueChannel only):
 ```rust
 use allora::{Exchange, Message, QueueChannel};
 use allora::channel::CorrelationSupport;
-let q = QueueChannel::with_random_id();
-let corr = q.send_with_correlation(Exchange::new(Message::from_text("req"))) ?;
-let ex = q.receive_by_correlation( & corr).expect("reply");
+#[tokio::main]
+async fn main() -> allora::Result<()> {
+    let q = QueueChannel::with_random_id();
+    let corr = q.send_with_correlation(Exchange::new(Message::from_text("req"))).await?;
+    let ex = q.receive_by_correlation(&corr).await.expect("reply");
+    assert!(ex.in_msg.body_text().is_some());
+    Ok(())
+}
 ```
 
 ### Current Limitations

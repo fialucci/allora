@@ -1,19 +1,24 @@
-use allora::channel::PollableChannel;
-use allora::{Allora, Channel, Exchange, Message};
+use allora::{
+    Channel, DirectChannel, Exchange, Message, PollableChannel, QueueChannel, Result, Runtime,
+};
 
 mod hello_service;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let rt = Allora::new().run()?;
+    let rt = Runtime::new().run()?;
 
-    rt.channel_typed_or_panic::<allora::DirectChannel>("input_channel")
-        .send_async(Exchange::new(Message::from_text("World")))
+    let input_channel = rt.channel::<DirectChannel>("input_channel");
+    let output_channel = rt.channel::<QueueChannel>("output_channel");
+
+    input_channel
+        .send(Exchange::new(Message::from_text("World")))
         .await?;
 
-    let ex = rt
-        .channel_typed_or_panic::<allora::QueueChannel>("output_channel")
-        .try_receive_async()
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let ex = output_channel
+        .try_receive()
         .await
         .expect("processed message");
 

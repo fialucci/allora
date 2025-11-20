@@ -1,0 +1,30 @@
+[package]
+name = "allora-http"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Allora Contributors"]
+description = "HTTP inbound/outbound adapters for Allora integration flows (request/reply & fire-and-forget)."
+repository = "https://github.com/fialucci/allora"
+homepage = "https://github.com/fialucci/allora"
+documentation = "https://docs.rs/allora-http"
+readme = "README.md"
+keywords = ["http", "integration", "adapter", "routing"]
+categories = ["network-programming", "asynchronous"]
+
+[lib]
+name = "allora_http"
+path = "src/lib.rs"
+
+[features]
+default = []
+async = []
+
+[dependencies]
+allora-core = { path = "../core" }
+tokio = { version = "1.39", features = ["rt", "rt-multi-thread"] }
+hyper = { version = "0.14", features = ["full"] }
+tracing = "0.1"
+serde_json = "1.0"
+uuid = { version = "1.8", features = ["v4"] }
+async-trait = "0.1"

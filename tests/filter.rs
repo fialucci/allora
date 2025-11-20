@@ -1,4 +1,4 @@
-use allora::{patterns::filter::Filter, Exchange, Message};
+use allora_core::{patterns::filter::Filter, Exchange, Message};
 
 fn create_exchange(body: &str) -> Exchange {
     Exchange::new(Message::from_text(body))
@@ -63,7 +63,7 @@ fn filter_apl_or_short_circuit() {
 fn filter_apl_invalid_leading_operator() {
     let filter_error = Filter::from_apl(r#"&& body.contains("X")"#).unwrap_err();
     match filter_error {
-        allora::Error::Serialization(msg) => assert!(msg.contains("logical operator parse error")),
+        allora_core::error::Error::Serialization(msg) => assert!(msg.contains("logical operator parse error")),
         other => panic!("unexpected: {other:?}"),
     }
 }
@@ -72,7 +72,7 @@ fn filter_apl_invalid_leading_operator() {
 fn filter_apl_invalid_trailing_operator() {
     let filter_error = Filter::from_apl(r#"header("x") == "y" &&"#).unwrap_err();
     match filter_error {
-        allora::Error::Serialization(msg) => assert!(msg.contains("logical operator parse error")),
+        allora_core::error::Error::Serialization(msg) => assert!(msg.contains("logical operator parse error")),
         other => panic!("unexpected: {other:?}"),
     }
 }
@@ -82,7 +82,7 @@ fn filter_apl_invalid_consecutive_operators() {
     let filter_error =
         Filter::from_apl(r#"header("x") == "y" && || body.contains("Y")"#).unwrap_err();
     match filter_error {
-        allora::Error::Serialization(msg) => assert!(msg.contains("logical operator parse error")),
+        allora_core::error::Error::Serialization(msg) => assert!(msg.contains("logical operator parse error")),
         other => panic!("unexpected: {other:?}"),
     }
 }

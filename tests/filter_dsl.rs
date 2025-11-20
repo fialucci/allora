@@ -2,7 +2,9 @@
 mod filter_helpers;
 #[path = "common/temp.rs"]
 mod temp;
-use allora::{build_filter, Exchange, Message};
+use allora_core::{Exchange, Message};
+use allora_runtime::dsl::component_builders::build_filters_from_spec;
+use allora_runtime::spec::FiltersSpecYamlParser;
 use filter_helpers::apply;
 use temp::temp_yaml;
 

@@ -10,14 +10,9 @@ impl DefaultSvc {
     }
 }
 
-#[cfg_attr(feature = "async", async_trait::async_trait)]
+#[async_trait::async_trait]
 impl Service for DefaultSvc {
-    #[cfg(feature = "async")]
     async fn process(&self, _ex: &mut Exchange) -> Result<()> {
-        Ok(())
-    }
-    #[cfg(not(feature = "async"))]
-    fn process(&self, _ex: &mut Exchange) -> Result<()> {
         Ok(())
     }
 }

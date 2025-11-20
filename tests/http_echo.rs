@@ -1,6 +1,6 @@
 #![cfg(feature = "http")]
-use allora::adapter::Adapter;
-use allora::channel::{ChannelRef, PollableChannel, QueueChannel};
+use allora_core::adapter::Adapter;
+use allora_core::channel::{ChannelRef, PollableChannel, QueueChannel};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -37,7 +37,7 @@ async fn http_echo_single_request_and_shutdown() {
     assert_eq!(&bytes[..], b"hello");
 
     let exchange = queue_channel
-        .try_receive_async()
+        .try_receive()
         .await
         .expect("exchange enqueued");
     assert_eq!(exchange.in_msg.body_text(), Some("hello"));
@@ -57,7 +57,7 @@ async fn http_echo_single_request_and_shutdown() {
     // Mirror header (correlation_id) should match
     assert_eq!(exchange.in_msg.header("correlation_id"), Some(corr_id));
     // Queue should now be empty
-    assert!(queue_channel.try_receive_async().await.is_none());
+    assert!(queue_channel.try_receive().await.is_none());
 
     // Ensure the server task completes (graceful shutdown after a single request).
     server_handle.await.expect("server task join");

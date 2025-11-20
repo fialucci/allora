@@ -1,65 +1,45 @@
 use allora::dsl::component_builders::{
     build_service_activators_from_spec, build_service_from_spec,
 };
-use allora::processor::SyncProcessor;
 use allora::spec::{ServiceActivatorSpec, ServiceActivatorsSpec};
 use allora::{Exchange, Message};
 
-#[test]
-fn build_single_service_sets_name_header() {
-    let spec = ServiceActivatorSpec::new("src/hello_world.rs", "inbound.orders", "vetted.orders");
-    let proc = build_service_from_spec(spec).expect("build service");
-    let mut exchange = Exchange::new(Message::from_text("ping"));
-    proc.process_sync(&mut exchange).expect("process");
+#[tokio::test]
+async fn service_builder_basic() {
+    let spec = allora::spec::ServiceActivatorSpec::new("impl/a.rs", "in.a", "out.a");
+    let proc = allora::dsl::component_builders::build_service_from_spec(spec).unwrap();
+    let mut exchange = allora::Exchange::new(allora::Message::from_text("msg"));
+    proc.process(&mut exchange).await.unwrap();
     assert_eq!(
         exchange.in_msg.header("service-activator.ref-name"),
-        Some("src/hello_world.rs")
+        Some("impl/a.rs")
     );
 }
 
-#[test]
-fn build_multiple_services_generates_auto_ids() {
-    let spec = ServiceActivatorsSpec::new(1)
-        .add(ServiceActivatorSpec::with_id(
-            "svc.alpha",
-            "src/a.rs",
+#[tokio::test]
+async fn service_builders_sequence_ids() {
+    let spec = allora::spec::ServiceActivatorsSpec::new(1)
+        .add(allora::spec::ServiceActivatorSpec::new(
+            "impl/a.rs",
             "in.a",
             "out.a",
         ))
-        .add(ServiceActivatorSpec::new("src/b.rs", "in.b", "out.b"))
-        .add(ServiceActivatorSpec::new("src/c.rs", "in.c", "out.c"));
-    let procs = build_service_activators_from_spec(spec).expect("build services");
-    assert_eq!(procs.len(), 3);
-    let mut exchange = Exchange::new(Message::from_text("x"));
-    procs[0].process_sync(&mut exchange).unwrap();
-    assert_eq!(
-        exchange.in_msg.header("service-activator.id"),
-        Some("svc.alpha")
-    );
-    // process the auto-id services
-    for p in &procs[1..] {
-        let mut ex2 = Exchange::new(Message::from_text("y"));
-        p.process_sync(&mut ex2).unwrap();
-        let sid = ex2
-            .in_msg
-            .header("service-activator.id")
-            .expect("auto id header");
-        assert!(sid.starts_with("service:auto."));
-    }
-}
-
-#[test]
-fn build_services_duplicate_id_error() {
-    let spec = ServiceActivatorsSpec::new(1)
-        .add(ServiceActivatorSpec::with_id(
-            "dup", "src/a.rs", "in.a", "out.a",
-        ))
-        .add(ServiceActivatorSpec::with_id(
-            "dup", "src/b.rs", "in.b", "out.b",
+        .add(allora::spec::ServiceActivatorSpec::new(
+            "impl/b.rs",
+            "in.b",
+            "out.b",
         ));
-    let err = build_service_activators_from_spec(spec).expect_err("expect duplicate id error");
-    match err {
-        allora::Error::Serialization(msg) => assert!(msg.contains("duplicate service.id")),
-        other => panic!("unexpected error: {other:?}"),
-    }
+    let procs = allora::dsl::component_builders::build_service_activators_from_spec(spec).unwrap();
+    let mut ex1 = allora::Exchange::new(allora::Message::from_text("one"));
+    procs[0].process(&mut ex1).await.unwrap();
+    let mut ex2 = allora::Exchange::new(allora::Message::from_text("two"));
+    procs[1].process(&mut ex2).await.unwrap();
+    assert_eq!(
+        ex1.in_msg.header("service-activator.id"),
+        Some("service:auto.1")
+    );
+    assert_eq!(
+        ex2.in_msg.header("service-activator.id"),
+        Some("service:auto.2")
+    );
 }

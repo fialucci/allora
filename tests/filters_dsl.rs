@@ -1,7 +1,6 @@
-use allora::dsl::component_builders::build_filters_from_spec;
-// internal builder reuse
-use allora::spec::FiltersSpecYamlParser;
-use allora::{Exchange, Message};
+use allora_core::{Exchange, Message};
+use allora_runtime::dsl::component_builders::build_filters_from_spec;
+use allora_runtime::spec::FiltersSpecYamlParser;
 #[path = "common/filter.rs"]
 mod filter_helpers;
 
