@@ -107,42 +107,24 @@ fn select_config(preferred: &Path) -> (LoggingConfig, String) {
     }
 }
 
-#[cfg(not(feature = "serde"))]
-fn select_config(_preferred: &Path) -> ((), String) {
-    ((), "default(no-serde)".to_string())
-}
-
 /// Load logging settings (filter, ansi, timestamp) without installing a subscriber.
 /// Public for testing.
 pub fn load_logging_settings(preferred: &Path) -> LoggingSettings {
-    #[cfg(feature = "serde")]
-    {
-        let (raw_cfg, source) = select_config(preferred);
-        let filter = raw_cfg
-            .filter
-            .unwrap_or_else(|| raw_cfg.level.unwrap_or_else(|| "info".to_string()));
-        let ansi = raw_cfg.ansi.unwrap_or(true);
-        let with_timestamp = raw_cfg
-            .format
-            .as_ref()
-            .and_then(|f| f.with_timestamp)
-            .unwrap_or(true);
-        return LoggingSettings {
-            filter,
-            ansi,
-            with_timestamp,
-            source,
-        };
-    }
-    #[cfg(not(feature = "serde"))]
-    {
-        let (_raw, source) = select_config(preferred);
-        return LoggingSettings {
-            filter: "info".into(),
-            ansi: true,
-            with_timestamp: true,
-            source,
-        };
+    let (raw_cfg, source) = select_config(preferred);
+    let filter = raw_cfg
+        .filter
+        .unwrap_or_else(|| raw_cfg.level.unwrap_or_else(|| "info".to_string()));
+    let ansi = raw_cfg.ansi.unwrap_or(true);
+    let with_timestamp = raw_cfg
+        .format
+        .as_ref()
+        .and_then(|f| f.with_timestamp)
+        .unwrap_or(true);
+    LoggingSettings {
+        filter,
+        ansi,
+        with_timestamp,
+        source,
     }
 }
 

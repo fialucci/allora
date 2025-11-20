@@ -16,10 +16,6 @@ categories = ["network-programming", "asynchronous"]
 name = "allora_http"
 path = "src/lib.rs"
 
-[features]
-default = []
-async = []
-
 [dependencies]
 allora-core = { path = "../core" }
 tokio = { version = "1.39", features = ["rt", "rt-multi-thread"] }

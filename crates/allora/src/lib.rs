@@ -20,11 +20,7 @@ pub use allora_core::{
 
 // --- Runtime facade ---------------------------------------------------
 
-#[cfg(feature = "runtime")]
-pub use allora_runtime::{
-    dsl::build, // low-level: build(&Path) -> Result<AlloraRuntime>
-    runtime::Runtime,
-};
+pub use allora_runtime::{dsl::build, runtime::Runtime};
 
 // --- Macros -----------------------------------------------------------
 

@@ -13,7 +13,7 @@
 //! * Predicate receives `&Exchange` (immutable view of inbound & optional outbound).
 //! * Success: `Ok(())`; Failure: `Err(Error::Routing(..))`.
 //! * Filter never mutates headers, body, or outbound message.
-//! * Works in sync and async builds (same struct, auto adaptation under `async` feature).
+//! * Async-only: evaluates predicate and returns immediately; no internal blocking.
 //!
 //! # Construction APIs
 //! * `Filter::new(|exchange| ...)` – custom closure predicate.
@@ -81,71 +81,41 @@
 //!
 //! See also: [`Filter`], [`Filter::from_apl`], [`Exchange`], [`Error::Routing`].
 
-#[cfg(not(feature = "filter"))]
-pub struct Filter; // stub
-#[cfg(not(feature = "filter"))]
-impl Filter {
-    pub fn new<F>(_f: F) -> Self
-    where
-        F: Fn(&Exchange) -> bool,
-    {
-        Filter
-    }
-}
-#[cfg(not(feature = "filter"))]
-pub type Predicate = (); // no-op
-
-#[cfg(feature = "filter")]
 use crate::error::{Error, Result};
-#[cfg(feature = "filter")]
 use crate::Exchange;
-#[cfg(feature = "filter")]
-use once_cell::sync::Lazy;
-#[cfg(feature = "filter")]
-use once_cell::sync::OnceCell;
-#[cfg(feature = "filter")]
+use once_cell::sync::{Lazy, OnceCell};
 use regex::Regex;
-#[cfg(feature = "filter")]
 use std::fmt::{Debug, Formatter, Result as FmtResult};
-#[cfg(feature = "filter")]
 use std::sync::Arc;
 
-#[cfg(feature = "filter")]
 struct CompiledPlan {
     atoms: Vec<Box<dyn Fn(&Exchange) -> bool + Send + Sync>>, // atomic predicates
     ops: Vec<String>,                                         // logical operators between atoms
 }
 
-#[cfg(feature = "filter")]
 static PLAN_CACHE: OnceCell<
     std::sync::Mutex<std::collections::HashMap<String, Arc<CompiledPlan>>>,
 > = OnceCell::new();
 
 // Precompiled regular expressions for APL parsing (avoid per-call compilation overhead).
-#[cfg(feature = "filter")]
 static TOKEN_SPLIT_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"\s*(?:(&&)|(\|\|))\s*").expect("valid token split regex"));
-#[cfg(feature = "filter")]
 static HEADER_EQ_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"^header\("([^"]+)"\)\s*==\s*"([^"]+)"$"#).expect("valid header eq regex")
 });
-#[cfg(feature = "filter")]
 static EXISTS_HEADER_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"^exists\(header\("([^"]+)"\)\)$"#).expect("valid exists header regex")
 });
-#[cfg(feature = "filter")]
 static BODY_CONTAINS_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"^body\.contains\("([^"]+)"\)$"#).expect("valid body.contains regex")
 });
 
-#[cfg(feature = "filter")]
 fn plan_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, Arc<CompiledPlan>>> {
     PLAN_CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 /// Obtain a guard for the global plan cache, recovering gracefully if the mutex was poisoned.
 /// Poison recovery logs a warning and returns the inner map, allowing continued operation
 /// instead of panicking inside library code.
-#[cfg(feature = "filter")]
 fn plan_cache_guard(
 ) -> std::sync::MutexGuard<'static, std::collections::HashMap<String, Arc<CompiledPlan>>> {
     match plan_cache().lock() {
@@ -157,24 +127,20 @@ fn plan_cache_guard(
     }
 }
 
-#[cfg(feature = "filter")]
 pub type Predicate = Box<dyn Fn(&Exchange) -> bool + Send + Sync + 'static>;
 
-#[cfg(feature = "filter")]
 pub struct Filter {
     plan: Arc<CompiledPlan>,
     error_message: Option<String>,
     id: String,
 }
 
-#[cfg(feature = "filter")]
 impl Debug for Filter {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         f.write_str("Filter{predicate=*closure*}")
     }
 }
 
-#[cfg(feature = "filter")]
 impl Filter {
     pub fn new<P>(p: P) -> Self
     where
@@ -267,7 +233,6 @@ impl Filter {
     }
 }
 
-#[cfg(feature = "filter")]
 fn execute_plan(plan: &CompiledPlan, exchange: &Exchange) -> bool {
     // Evaluate left-associative && groups segmented by ||
     let atoms = &plan.atoms;
@@ -292,7 +257,6 @@ fn execute_plan(plan: &CompiledPlan, exchange: &Exchange) -> bool {
 }
 
 /// Tokenize APL by splitting on logical operators while retaining them.
-#[cfg(feature = "filter")]
 fn tokenize_apl(apl: &str) -> Vec<&str> {
     let mut parts = Vec::new();
     let mut last = 0;
@@ -313,7 +277,6 @@ fn tokenize_apl(apl: &str) -> Vec<&str> {
 }
 
 /// Build an atomic predicate closure from a raw token.
-#[cfg(feature = "filter")]
 fn build_atom(raw: &str) -> Box<dyn Fn(&Exchange) -> bool + Send + Sync> {
     let s = raw.trim();
     // Use Arc<str> to allow cheap cloning of captured strings across closures, reducing
@@ -350,7 +313,6 @@ fn build_atom(raw: &str) -> Box<dyn Fn(&Exchange) -> bool + Send + Sync> {
     Box::new(move |exchange: &Exchange| exchange.in_msg.body_text() == Some(literal.as_ref()))
 }
 
-#[cfg(feature = "filter")]
 #[async_trait::async_trait]
 impl crate::processor::Processor for Filter {
     async fn process(&self, exchange: &mut Exchange) -> crate::error::Result<()> {
@@ -365,6 +327,3 @@ impl crate::processor::Processor for Filter {
         }
     }
 }
-
-#[cfg(not(feature = "filter"))]
-use crate::Exchange;

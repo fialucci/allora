@@ -18,8 +18,8 @@
 //! # Thread Safety / Mutation
 //! These types are plain structs; mutation requires &mut access. If sharing between threads, wrap in synchronization primitives (e.g. Arc<Mutex<_>>). The library leaves concurrency control to callers for flexibility.
 //!
-//! # Serde Feature
-//! Enable the `serde` feature to derive `Serialize`/`Deserialize` on `Payload`, `Message`, and `Exchange`. JSON bodies use `serde_json::Value`.
+//! # Serialization
+//! All types derive `Serialize`/`Deserialize` unconditionally; JSON bodies use `serde_json::Value`.
 //!
 //! # Examples
 //! Basic creation:
@@ -45,20 +45,17 @@
 //! [`CorrelationInitializer`]: crate::patterns::correlation_initializer::CorrelationInitializer
 //! [`Route::with_correlation`]: crate::route::Route::with_correlation
 
-#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Represents the payload of a message, supporting text, bytes, JSON, or empty.
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Payload {
     /// UTF-8 text payload.
     Text(String),
     /// Raw bytes payload.
     Bytes(Vec<u8>),
     /// JSON value payload (only when serde feature enabled).
-    #[cfg(feature = "serde")]
     Json(serde_json::Value),
     /// Empty payload.
     Empty,
@@ -102,8 +99,7 @@ impl Payload {
 /// # Header Semantics
 /// All headers are simple UTF-8 strings. Keep values small; store large / complex structures
 /// in the payload or properties instead.
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Message {
     /// The message payload.
     pub payload: Payload,
@@ -172,8 +168,7 @@ impl Message {
 ///
 /// # Correlation Helper
 /// `Exchange::correlation_id` provides a convenience wrapper around `in_msg.ensure_correlation_id()`.
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Exchange {
     /// The inbound message.
     pub in_msg: Message,

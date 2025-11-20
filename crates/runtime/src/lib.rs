@@ -79,14 +79,12 @@ pub use allora_core::processor;
 pub use allora_core::route;
 pub use allora_core::service;
 // Channel abstractions
-pub use allora_core::CoreFilter as Filter;
+pub use allora_core::Filter;
 pub use allora_core::Route;
 pub use allora_core::{Endpoint, EndpointBuilder, EndpointSource, InMemoryEndpoint};
-#[cfg(feature = "http")]
-pub use allora_http::Adapter;
-#[cfg(feature = "http")]
 pub use allora_http::{
-    HttpInboundAdapter, HttpInboundBuilder, HttpOutboundAdapter, HttpOutboundAdapterBuilder, Mep,
+    Adapter, HttpInboundAdapter, HttpInboundBuilder, HttpOutboundAdapter,
+    HttpOutboundAdapterBuilder, Mep,
 };
 pub use channel::{
     Channel, ChannelRef, CorrelationSupport, DirectChannel, PollableChannel, QueueChannel,
@@ -121,13 +119,11 @@ pub mod adapter {
     pub use allora_core::adapter::{
         ensure_correlation, BaseAdapter, InboundAdapter, OutboundAdapter, OutboundDispatchResult,
     };
-    #[cfg(feature = "http")]
     pub use allora_http::{
         Adapter, HttpInboundBuilder, HttpOutboundAdapterBuilder, InboundStage, OutboundStage,
     };
 }
 
-#[cfg(feature = "http")]
 pub trait InMemoryEndpointHttpExt {
     fn attach_http(
         self: &Arc<Self>,
@@ -137,8 +133,6 @@ pub trait InMemoryEndpointHttpExt {
     ) -> &Self;
     fn attach_http_any(self: &Arc<Self>, adapter: &HttpInboundAdapter, path: &str) -> &Self;
 }
-
-#[cfg(feature = "http")]
 impl InMemoryEndpointHttpExt for InMemoryEndpoint {
     fn attach_http(
         self: &Arc<Self>,

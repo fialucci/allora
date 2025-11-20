@@ -32,8 +32,7 @@ pub use endpoint::{Endpoint, EndpointBuilder, EndpointSource, InMemoryEndpoint};
 pub use error::{Error, Result};
 pub use logging::{init_from_dir as core_init_logging, LoggingSettings};
 pub use message::{Exchange, Message, Payload};
-#[cfg(feature = "filter")]
-pub use patterns::filter::Filter as CoreFilter;
+pub use patterns::filter::Filter;
 pub use processor::{BoxedProcessor, ClosureProcessor, Processor};
 pub use route::Route;
 pub use service::{Service, ServiceActivator};

@@ -7,7 +7,7 @@ Rust.
 
 - YAML spec: channels, filters, service-activators
 - Inventory-based service registration (`#[service]` macro)
-- Optional HTTP adapters (feature: `http`)
+- HTTP adapters available
 - Programmatic builders (channels, filters, services)
 
 ## Quick Start (Async)

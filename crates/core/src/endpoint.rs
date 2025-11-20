@@ -139,7 +139,6 @@ impl InOutQueueEndpointBuilder {
         self.source = Some(src);
         self
     }
-    #[cfg(feature = "http")]
     pub fn source_http(
         self,
         _adapter: &Arc<()>,
@@ -181,7 +180,6 @@ impl InOnlyInMemoryEndpointBuilder {
         self.id = Some(id.into());
         self
     }
-    #[cfg(feature = "http")]
     pub fn source_http(
         self,
         _adapter: &Arc<()>,
