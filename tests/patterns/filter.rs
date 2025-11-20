@@ -4,7 +4,7 @@ use allora::{patterns::filter::Filter, Exchange, Message};
 async fn filter_predicate() {
     let filt = Filter::new(|ex| ex.in_msg.body_text() == Some("pass"));
     let mut ex = Exchange::new(Message::from_text("pass"));
-    filt.process_sync(&mut ex).unwrap();
+    filt.process(&mut ex).await.unwrap();
     assert_eq!(ex.in_msg.body_text(), Some("pass"));
 }
 

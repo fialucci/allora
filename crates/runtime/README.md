@@ -19,7 +19,7 @@ fn main() -> Result<(), Error> {
     let rt = Runtime::new().with_config_file("./allora.yml").run()?; // blocking build
     let queue = rt.channel::<QueueChannel>("my_channel");
     let mut ex = Exchange::new(Message::from_text("hello"));
-    TokioRuntime::new().unwrap().block_on(async { queue.send_async(ex).await.unwrap(); });
+    TokioRuntime::new().unwrap().block_on(async { queue.send(ex).await.unwrap(); });
     Ok(())
 }
 ```
@@ -55,6 +55,18 @@ impl Service for Greeter {
     }
 }
 ```
+
+## API Notes
+
+All channel and endpoint operations are async-only. Legacy method names like `send_async`, `try_receive_async`,
+`send_with_correlation_async` were removed. Use:
+
+- `queue.send(exchange).await?` – enqueue message
+- `queue.try_receive().await` – attempt FIFO dequeue (Option)
+- `queue.send_with_correlation(exchange).await?` – enqueue and assign correlation id
+- `queue.receive_by_correlation(&id).await` – receive correlated exchange
+
+These functions all return `Result` or `Option` variants; there are no sync fallbacks.
 
 ## License
 

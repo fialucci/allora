@@ -215,22 +215,29 @@ let dc = DirectChannel::with_random_id();
 let qc = QueueChannel::with_id("events");
 ```
 
-Send/Receive (sync mode shown for brevity; async adds `*_async` variants):
+Send/Receive (async-only API):
 
 ```rust
-use allora::{Exchange, Message, DirectChannel, QueueChannel};
-use allora::channel::PollableChannel; // for try_receive
-let dc = DirectChannel::with_id("notifications");
-let qc = QueueChannel::with_random_id();
-// fan-out to subscribers
-dc.subscribe( | ex| { assert_eq ! (ex.in_msg.body_text(), Some("ping")); Ok(()) });
-dc.send(Exchange::new(Message::from_text("ping"))) ?;
-// buffered receive
-qc.send(Exchange::new(Message::from_text("work"))) ?;
-let ex = qc.try_receive().expect("queued message");
+use allora::channel::PollableChannel;
+use allora::{DirectChannel, Exchange, Message, QueueChannel};
+#[tokio::main]
+async fn main() -> allora::Result<()> {
+    let dc = DirectChannel::with_id("notifications");
+    let qc = QueueChannel::with_random_id();
+    // fan-out to subscribers
+    dc.subscribe(|ex| {
+        assert_eq!(ex.in_msg.body_text(), Some("ping"));
+        Ok(())
+    });
+    dc.send(Exchange::new(Message::from_text("ping"))).await?;
+    qc.send(Exchange::new(Message::from_text("work"))).await?;
+    let ex = qc.try_receive().await.expect("queued message");
+    assert_eq!(ex.in_msg.body_text(), Some("work"));
+    Ok(())
+}
 ```
 
-Async example:
+Example (additional):
 
 ```rust
 use allora::{Exchange, Message, DirectChannel, QueueChannel, Channel};
@@ -242,10 +249,10 @@ async fn main() -> allora::Result<()> {
         assert_eq!(ex.in_msg.body_text(), Some("ping"));
         Ok(())
     });
-    dc.send_async(Exchange::new(Message::from_text("ping"))).await?;
+    dc.send(Exchange::new(Message::from_text("ping"))).await?;
     let qc = QueueChannel::with_id("jobs");
-    qc.send_async(Exchange::new(Message::from_text("job"))).await?;
-    let ex = qc.try_receive_async().await.expect("job present");
+    qc.send(Exchange::new(Message::from_text("job"))).await?;
+    let ex = qc.try_receive().await.expect("job present");
     assert_eq!(ex.in_msg.body_text(), Some("job"));
     Ok(())
 }
@@ -256,9 +263,14 @@ Correlation (QueueChannel only):
 ```rust
 use allora::{Exchange, Message, QueueChannel};
 use allora::channel::CorrelationSupport;
-let q = QueueChannel::with_random_id();
-let corr = q.send_with_correlation(Exchange::new(Message::from_text("req"))) ?;
-let ex = q.receive_by_correlation( & corr).expect("reply");
+#[tokio::main]
+async fn main() -> allora::Result<()> {
+    let q = QueueChannel::with_random_id();
+    let corr = q.send_with_correlation(Exchange::new(Message::from_text("req"))).await?;
+    let ex = q.receive_by_correlation(&corr).await.expect("reply");
+    assert!(ex.in_msg.body_text().is_some());
+    Ok(())
+}
 ```
 
 ### Current Limitations

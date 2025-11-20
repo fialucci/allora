@@ -7,7 +7,7 @@ initializer).
 ## Highlights
 
 - Lightweight in-memory channels (direct handoff + FIFO queue)
-- Async-first API (`send_async`, `try_receive_async`, correlation helpers)
+- Async-only API (await `send` / `try_receive`; built-in correlation helpers)
 - Extensible processor & route abstraction
 - Common EIP patterns with thorough inline docs & doctests
 
@@ -27,8 +27,8 @@ fn main() {
     let ch = QueueChannel::with_id("demo");
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        ch.send_async(Exchange::new(Message::from_text("ping"))).await.unwrap();
-        let ex = ch.try_receive_async().await.unwrap();
+        ch.send(Exchange::new(Message::from_text("ping"))).await.unwrap();
+        let ex = ch.try_receive().await.unwrap();
         assert_eq!(ex.in_msg.body_text(), Some("ping"));
     });
 }

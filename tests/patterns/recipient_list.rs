@@ -16,6 +16,6 @@ async fn recipient_list_invokes_all() {
         }),
     ]);
     let mut ex = Exchange::new(Message::from_text("demo"));
-    rl.process_sync(&mut ex).unwrap();
+    rl.process(&mut ex).await.unwrap();
     assert_eq!(*hits.lock().unwrap(), vec!["one", "two"]);
 }
