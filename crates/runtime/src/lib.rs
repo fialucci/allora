@@ -2,7 +2,7 @@
 //!
 //! High-level, lightweight primitives for composing message-driven flows in Rust.
 //! Provides channels, messages, exchanges, simple filters/patterns, plus a facade
-//! (`Allora`) for bootstrapping a runtime from a YAML configuration file.
+//! (`Runtime`) for bootstrapping a runtime from a YAML configuration file.
 //!
 //! # Key Concepts
 //! * Message – immutable payload + headers
@@ -12,13 +12,11 @@
 //! * Runtime – collection of declared channels & filters built from a spec
 //!
 //! # Features
-//! * `async` (default) – async channel operations
-//! * `http` – optional HTTP adapters
-//! * `serde` always on for (de)serialization
+//! Async-only architecture; HTTP adapters and serialization always enabled (no feature flags).
 //!
 //! # Crate Use
 //! * Programmatic: build channels/filters directly via builders
-//! * Declarative: provide `allora.yml` and use `Allora::new().run()`
+//! * Declarative: provide `allora.yml` and use `Runtime::new().run()`
 //!
 //! # Minimal Programmatic Example
 //! ```rust
@@ -68,7 +66,9 @@ pub mod dsl; // new multi-format DSL facade (yaml/json/xml)
 pub mod runtime;
 pub mod service_activator_processor;
 pub mod spec; // new specification-based builders replacing DSL façade gradually
-pub use adapter::{ensure_correlation, InboundAdapter, OutboundAdapter, OutboundDispatchResult};
+pub use adapter::{
+    ensure_correlation, Adapter, InboundAdapter, OutboundAdapter, OutboundDispatchResult,
+};
 pub use allora_core::channel;
 pub use allora_core::endpoint;
 pub use allora_core::error;
@@ -82,9 +82,16 @@ pub use allora_core::service;
 pub use allora_core::Filter;
 pub use allora_core::Route;
 pub use allora_core::{Endpoint, EndpointBuilder, EndpointSource, InMemoryEndpoint};
+
+// Top-level HTTP re-exports (behind the `http` feature)
 pub use allora_http::{
-    Adapter, HttpInboundAdapter, HttpInboundBuilder, HttpOutboundAdapter,
-    HttpOutboundAdapterBuilder, Mep,
+    HttpInboundAdapter,
+    HttpInboundBuilder,
+    HttpOutboundAdapter,
+    HttpOutboundAdapterBuilder,
+    Mep,
+    InboundHttpExt,
+    OutboundHttpExt,
 };
 pub use channel::{
     Channel, ChannelRef, CorrelationSupport, DirectChannel, PollableChannel, QueueChannel,
@@ -117,36 +124,24 @@ pub fn all_service_descriptors() -> Vec<&'static ServiceDescriptor> {
 
 pub mod adapter {
     pub use allora_core::adapter::{
-        ensure_correlation, BaseAdapter, InboundAdapter, OutboundAdapter, OutboundDispatchResult,
+        ensure_correlation,
+        BaseAdapter,
+        InboundAdapter,
+        OutboundAdapter,
+        OutboundDispatchResult,
+        Adapter,
+        InboundStage,
+        OutboundStage,
     };
     pub use allora_http::{
-        Adapter, HttpInboundBuilder, HttpOutboundAdapterBuilder, InboundStage, OutboundStage,
+        HttpInboundAdapter,
+        HttpInboundBuilder,
+        HttpOutboundAdapter,
+        HttpOutboundAdapterBuilder,
+        Mep,
+        InboundHttpExt,
+        OutboundHttpExt,
     };
-}
-
-pub trait InMemoryEndpointHttpExt {
-    fn attach_http(
-        self: &Arc<Self>,
-        adapter: &HttpInboundAdapter,
-        method: &str,
-        path: &str,
-    ) -> &Self;
-    fn attach_http_any(self: &Arc<Self>, adapter: &HttpInboundAdapter, path: &str) -> &Self;
-}
-impl InMemoryEndpointHttpExt for InMemoryEndpoint {
-    fn attach_http(
-        self: &Arc<Self>,
-        adapter: &HttpInboundAdapter,
-        method: &str,
-        path: &str,
-    ) -> &Self {
-        adapter.register_endpoint(method, path, Arc::downgrade(self));
-        self
-    }
-    fn attach_http_any(self: &Arc<Self>, adapter: &HttpInboundAdapter, path: &str) -> &Self {
-        adapter.register_endpoint_any(path, Arc::downgrade(self));
-        self
-    }
 }
 
 pub use inventory; // re-export for macro usage allora::inventory::submit!

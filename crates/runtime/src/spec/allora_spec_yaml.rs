@@ -25,7 +25,7 @@ use crate::error::{Error, Result};
 use crate::spec::{
     allora_spec::AlloraSpec, channels_spec_yaml::ChannelsSpecYamlParser,
     filters_spec_yaml::FiltersSpecYamlParser, ChannelsSpec, FiltersSpec, ServiceActivatorsSpec,
-    ServiceSpecYamlParser,
+    ServiceSpecYamlParser, HttpInboundAdaptersSpec, HttpInboundAdaptersSpecYamlParser,
 };
 use serde_yaml::Value as YamlValue;
 
@@ -44,6 +44,8 @@ impl AlloraSpecYamlParser {
         let filters_root = yaml.get("filters");
         // optional services
         let services_root = yaml.get("service-activators");
+        // optional http inbound adapters
+        let http_inbound_root = yaml.get("http-inbound-adapters");
         // Synthesize mapping for channel parser reuse
         let mut obj = serde_yaml::Mapping::new();
         obj.insert(
@@ -106,6 +108,30 @@ impl AlloraSpecYamlParser {
                 services_spec.push(svc);
             }
             all = all.with_services(services_spec);
+        }
+        if let Some(hr) = http_inbound_root {
+            if !hr.is_sequence() {
+                return Err(Error::serialization("'http-inbound-adapters' must be a sequence"));
+            }
+            if hr.as_sequence().unwrap().is_empty() {
+                return Err(Error::serialization(
+                    "'http-inbound-adapters' sequence must not be empty",
+                ));
+            }
+            // synthesize mapping for collection parser
+            let mut hobj = serde_yaml::Mapping::new();
+            hobj.insert(
+                serde_yaml::Value::String("version".into()),
+                serde_yaml::Value::Number(serde_yaml::Number::from(v)),
+            );
+            hobj.insert(
+                serde_yaml::Value::String("http-inbound-adapters".into()),
+                hr.clone(),
+            );
+            let hsynth = serde_yaml::Value::Mapping(hobj);
+            let adapters_spec: HttpInboundAdaptersSpec =
+                HttpInboundAdaptersSpecYamlParser::parse_value(&hsynth)?;
+            all = all.with_http_inbound_adapters(adapters_spec);
         }
         Ok(all)
     }

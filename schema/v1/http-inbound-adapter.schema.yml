@@ -1,0 +1,78 @@
+# Allora HTTP Inbound Adapter DSL Schema (v1)
+# Defines a single HTTP inbound adapter that binds an HTTP endpoint to
+# a request channel and optional reply channel in the messaging system.
+# Validation is descriptive only; runtime/parser enforce deeper constraints.
+
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "local://schemas/v1/http-inbound-adapter.schema.yml"
+
+title: "Allora HTTP Inbound Adapter Specification v1"
+description: "HTTP server endpoint mapping inbound HTTP requests to a message channel with optional reply channel"
+type: object
+required: [ version, http-inbound-adapter ]
+additionalProperties: false
+
+properties:
+  version:
+    type: integer
+    const: 1
+    description: "Schema version (must be 1)."
+
+  http-inbound-adapter:
+    type: object
+    description: "HTTP inbound adapter definition block"
+    required: [ host, port, path, methods, request-channel ]
+    additionalProperties: false
+    properties:
+      id:
+        type: string
+        minLength: 1
+        description: |
+          Optional explicit adapter identifier. Must be a non-empty string if provided.
+          Uniqueness is enforced during build. When omitted the runtime may assign a deterministic auto id.
+      host:
+        type: string
+        minLength: 1
+        description: "Interface / hostname the HTTP server binds (e.g. 127.0.0.1 or 0.0.0.0)."
+        default: 127.0.0.1
+      port:
+        type: integer
+        minimum: 1
+        maximum: 65535
+        description: "TCP port the HTTP server listens on."
+        default: 80
+      path:
+        type: string
+        minLength: 1
+        pattern: '^/.*'
+        description: "Path segment (must start with '/'). Treated as exact match by current runtime."
+      methods:
+        type: array
+        minItems: 1
+        items:
+          type: string
+          enum: [ GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD ]
+        description: "Allowed HTTP methods for this endpoint."
+        default: [ POST ]
+      request-channel:
+        type: string
+        minLength: 1
+        description: "Channel id that receives the inbound HTTP request mapped as a message."
+      reply-channel:
+        type: string
+        minLength: 1
+        description: |
+          Optional channel id for reply messages. If absent the adapter MAY return 202/204
+          immediately depending on runtime strategy.
+
+examples:
+  - version: 1
+    http-inbound-adapter:
+      id: http.receiveGateway
+      host: 127.0.0.1
+      port: 8080
+      path: /receiveGateway
+      methods: [ POST ]
+      request-channel: receiveChannel
+      reply-channel: replyChannel
+

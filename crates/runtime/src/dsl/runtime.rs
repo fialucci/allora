@@ -49,8 +49,9 @@
 //! `AlloraRuntime` construction centralized in the DSL facade.
 use crate::channel::Channel;
 use crate::dsl::component_builders::ServiceProcessor;
-use crate::Filter;
 use crate::service_activator_processor::ServiceActivatorProcessor;
+use crate::Filter;
+use crate::HttpInboundAdapter;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -64,6 +65,7 @@ pub struct AlloraRuntime {
     filters: Vec<Filter>,
     services: Vec<ServiceProcessor>,
     service_activator_processors: Vec<ServiceActivatorProcessor>,
+    http_inbound_adapters: Vec<HttpInboundAdapter>,
 }
 
 impl AlloraRuntime {
@@ -77,6 +79,7 @@ impl AlloraRuntime {
             filters: Vec::new(),
             services: Vec::new(),
             service_activator_processors: Vec::new(),
+            http_inbound_adapters: Vec::new(),
         }
     }
     /// Sets the filters for this runtime.
@@ -95,6 +98,13 @@ impl AlloraRuntime {
     }
     pub fn with_service_processors(mut self, proc: Vec<ServiceActivatorProcessor>) -> Self {
         self.service_activator_processors = proc;
+        self
+    }
+    /// Sets the HTTP inbound adapters for this runtime.
+    ///
+    /// Consumes the provided adapters vector and assigns it to the runtime.
+    pub fn with_http_inbound_adapters(mut self, adapters: Vec<HttpInboundAdapter>) -> Self {
+        self.http_inbound_adapters = adapters;
         self
     }
     /// Borrow all channels as an iterator of &dyn Channel (zero allocation).
@@ -134,6 +144,13 @@ impl AlloraRuntime {
             .iter()
             .find(|c| c.id() == id)
             .map(|c| c.as_ref())
+    }
+    /// Return a cloned Arc<dyn Channel> by id if it exists (helper for builders needing ownership).
+    pub fn channel_ref_by_id(&self, id: &str) -> Option<Arc<dyn Channel>> {
+        self.channels
+            .iter()
+            .find(|c| c.id() == id)
+            .map(|c| Arc::clone(c))
     }
     /// Generic typed channel lookup: returns &T if a channel with `id` exists and downcasts to T.
     pub fn channel_typed<T: Channel + 'static>(&self, id: &str) -> Option<&T> {
@@ -202,5 +219,11 @@ impl AlloraRuntime {
         self.service_activator_processors
             .iter_mut()
             .find(|p| p.id() == id)
+    }
+    pub fn http_inbound_adapters(&self) -> &[HttpInboundAdapter] {
+        &self.http_inbound_adapters
+    }
+    pub fn http_inbound_adapter_count(&self) -> usize {
+        self.http_inbound_adapters.len()
     }
 }

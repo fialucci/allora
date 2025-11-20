@@ -51,6 +51,8 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error("runtime error: {0}")]
+    Runtime(String),
     #[error("processor error: {0}")]
     /// Errors originating from processor logic (validation, transformation, enrichment).
     Processor(String),
@@ -72,6 +74,10 @@ impl Error {
     /// Convenience: create an `Other` error.
     pub fn other<S: Into<String>>(s: S) -> Self {
         Self::Other(s.into())
+    }
+    /// Convenience: create an `Runtime` error.
+    pub fn runtime<S: Into<String>>(s: S) -> Self {
+        Self::Runtime(s.into())
     }
     /// Convenience: create a `Processor` error.
     pub fn processor<S: Into<String>>(s: S) -> Self {

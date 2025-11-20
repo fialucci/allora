@@ -95,11 +95,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{debug, info, trace};
 
-/// Maximum depth to search parent directories when auto-discovering configuration.
-/// Prevents infinite loops and excessive filesystem traversal in pathological cases
-/// (e.g., symlink cycles or deeply nested directory structures).
-const MAX_PARENT_SEARCH_DEPTH: u8 = 10;
-
 /// `Allora` builder holds configuration inputs prior to runtime construction.
 #[derive(Debug, Clone)]
 pub struct Runtime {
@@ -185,7 +180,7 @@ impl Runtime {
         }
 
         if !exists {
-            return Err(Error::other(format!(
+            return Err(Error::runtime(format!(
                 "config file '{}' not found",
                 path.display()
             )));
@@ -319,56 +314,68 @@ pub fn wire_services(rt: &AlloraRuntime) -> Result<()> {
 }
 
 fn resolve_default_config() -> PathBuf {
-    // Prefer CWD/allora.yml first.
+    use std::env;
+
+    // 0. CLI override: --runtime <path> or --runtime=/path
+    //
+    // Example:
+    //   cargo run --manifest-path examples/basic/http/Cargo.toml -- \
+    //     --runtime examples/basic/http/allora.yml
+    //
+    // or
+    //
+    //   cargo run -- ... --runtime=examples/basic/http/allora.yml
+    let mut args = env::args().skip(1); // skip program name
+    let mut runtime_override: Option<String> = None;
+
+    while let Some(arg) = args.next() {
+        if arg == "--runtime" {
+            if let Some(val) = args.next() {
+                runtime_override = Some(val);
+            }
+            break;
+        } else if let Some(rest) = arg.strip_prefix("--runtime=") {
+            runtime_override = Some(rest.to_string());
+            break;
+        }
+    }
+
+    if let Some(raw) = runtime_override {
+        let p = PathBuf::from(raw);
+        // If it's a directory, assume allora.yml inside it.
+        if p.is_dir() {
+            return p.join("allora.yml");
+        } else {
+            return p;
+        }
+    }
+
+    // 1. Optional env override (useful for CI or scripts)
+    if let Ok(raw) = env::var("ALLORA_CONFIG") {
+        let p = PathBuf::from(raw);
+        if p.is_dir() {
+            return p.join("allora.yml");
+        } else {
+            return p;
+        }
+    }
+
+    // 2. Prefer ./allora.yml in the current working directory (dev-friendly)
     let cwd_candidate = PathBuf::from("allora.yml");
     if cwd_candidate.exists() {
         return cwd_candidate;
     }
-    // Ascend from the executable location (helps when running with --manifest-path from repo root).
-    if let Ok(exe) = std::env::current_exe() {
-        let mut dir_opt = exe.parent();
-        let mut depth = 0u8;
-        while let Some(dir) = dir_opt {
-            if depth >= MAX_PARENT_SEARCH_DEPTH {
-                break;
-            }
+
+    // 3. Then try <directory_of_executable>/allora.yml (release-friendly)
+    if let Ok(exe) = env::current_exe() {
+        if let Some(dir) = exe.parent() {
             let candidate = dir.join("allora.yml");
             if candidate.exists() {
                 return candidate;
             }
-            dir_opt = dir.parent();
-            depth += 1;
         }
     }
-    // Fallback search: examples/**/allora.yml (first match, deterministic sorted order)
-    if let Ok(examples_dir) = std::fs::read_dir("examples") {
-        // Collect directories breadth-first
-        let mut dirs: Vec<PathBuf> = Vec::new();
-        for entry in examples_dir.filter_map(|e| e.ok()) {
-            let p = entry.path();
-            if p.is_dir() {
-                dirs.push(p);
-            }
-        }
-        // Sort for deterministic selection
-        dirs.sort();
-        // Recursive descent (limited depth) without external crates
-        let mut stack = dirs.clone();
-        while let Some(dir) = stack.pop() {
-            let candidate = dir.join("allora.yml");
-            if candidate.exists() {
-                return candidate;
-            }
-            if let Ok(child_entries) = std::fs::read_dir(&dir) {
-                for ce in child_entries.filter_map(|e| e.ok()) {
-                    let cp = ce.path();
-                    if cp.is_dir() {
-                        stack.push(cp);
-                    }
-                }
-            }
-        }
-    }
-    // Fallback (will error later if truly absent).
+
+    // 4. Fallback (will cause a clear error in `run()` if missing)
     PathBuf::from("allora.yml")
 }
