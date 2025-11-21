@@ -1,0 +1,10 @@
+version: 1
+http-inbound-adapter:
+  id: http.receiveGateway
+  host: 127.0.0.1
+  port: 8080
+  path: /receiveGateway
+  methods: [ POST ]
+  request-channel: receiveChannel
+  reply-channel: replyChannel
+

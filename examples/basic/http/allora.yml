@@ -1,0 +1,25 @@
+version: 1
+channels:
+  # Where HTTP requests arrive as Exchanges
+  - id: receiveChannel
+    kind: direct        # direct channel → matches Spring's default
+  # Where the service puts its reply Exchange
+  - id: replyChannel
+    kind: queue         # queue is convenient for request/reply + correlation
+http-inbound-adapters:
+  - id: http.receiveGateway
+    host: 127.0.0.1
+    port: 18080
+    # Webhook endpoint
+    path: /receiveGateway
+    methods: [ POST ]
+    # Channel that receives inbound HTTP requests
+    request-channel: receiveChannel
+    # Channel where the adapter will look for the correlated reply
+    reply-channel: replyChannel
+# Service that mimics: payload + " from the other side"
+service-activators:
+  - id: svc.httpEcho
+    ref-name: http_echo          # used by #[service(name = "http_echo")]
+    from: receiveChannel         # consumes incoming HTTP requests
+    to: replyChannel             # sends reply Exchange that the adapter will return

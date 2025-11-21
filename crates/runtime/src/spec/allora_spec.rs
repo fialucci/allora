@@ -27,8 +27,7 @@
 //! ```
 //!
 
-use crate::spec::ServiceActivatorsSpec;
-use crate::spec::{ChannelsSpec, FiltersSpec};
+use crate::spec::{ChannelsSpec, FiltersSpec, ServiceActivatorsSpec, HttpInboundAdaptersSpec};
 
 #[derive(Debug, Clone)]
 pub struct AlloraSpec {
@@ -36,6 +35,7 @@ pub struct AlloraSpec {
     channels: ChannelsSpec,
     filters: Option<FiltersSpec>,
     services: Option<ServiceActivatorsSpec>,
+    http_inbound_adapters: Option<HttpInboundAdaptersSpec>,
 }
 
 impl AlloraSpec {
@@ -45,6 +45,7 @@ impl AlloraSpec {
             channels,
             filters: None,
             services: None,
+            http_inbound_adapters: None,
         }
     }
     /// Construct with an optional filters collection in a single call (ergonomic alternative to chaining `with_filters`).
@@ -59,6 +60,7 @@ impl AlloraSpec {
             channels,
             filters,
             services: None,
+            http_inbound_adapters: None,
         }
     }
     pub fn with_filters(mut self, filters: FiltersSpec) -> Self {
@@ -67,6 +69,10 @@ impl AlloraSpec {
     }
     pub fn with_services(mut self, services: ServiceActivatorsSpec) -> Self {
         self.services = Some(services);
+        self
+    }
+    pub fn with_http_inbound_adapters(mut self, adapters: HttpInboundAdaptersSpec) -> Self {
+        self.http_inbound_adapters = Some(adapters);
         self
     }
     pub fn version(&self) -> u32 {
@@ -81,6 +87,9 @@ impl AlloraSpec {
     pub fn services_spec(&self) -> Option<&ServiceActivatorsSpec> {
         self.services.as_ref()
     }
+    pub fn http_inbound_adapters_spec(&self) -> Option<&HttpInboundAdaptersSpec> {
+        self.http_inbound_adapters.as_ref()
+    }
     pub fn into_channels_spec(self) -> ChannelsSpec {
         self.channels
     }
@@ -89,5 +98,8 @@ impl AlloraSpec {
     }
     pub fn into_services_spec(self) -> Option<ServiceActivatorsSpec> {
         self.services
+    }
+    pub fn into_http_inbound_adapters_spec(self) -> Option<HttpInboundAdaptersSpec> {
+        self.http_inbound_adapters
     }
 }

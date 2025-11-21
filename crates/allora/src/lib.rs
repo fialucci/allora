@@ -17,6 +17,7 @@ pub use allora_core::{
     processor::{ClosureProcessor, Processor},
     service::Service,
 };
+pub use allora_http::{HttpInboundAdapter, Mep as HttpInboundMep};
 
 // --- Runtime facade ---------------------------------------------------
 

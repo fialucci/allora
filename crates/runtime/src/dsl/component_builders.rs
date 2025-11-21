@@ -63,14 +63,17 @@
 //! This documentation focuses on current behavior while outlining evolution points to minimize
 //! refactors as new component types are added.
 
+use crate::adapter::Adapter;
+use crate::channel::ChannelRef;
+// already available via allora-core re-export
+use crate::spec::{HttpInboundAdapterSpec, HttpInboundAdaptersSpec};
 use crate::{
-    Channel,
-    Error, Result,
-    Filter,
-    ClosureProcessor,
     spec::{ChannelKindSpec, ChannelSpec, ChannelsSpec, FilterSpec, FiltersSpec},
     spec::{ServiceActivatorSpec, ServiceActivatorsSpec},
+    Channel, ClosureProcessor, Error, Filter, Result,
 };
+use allora_http::{HttpInboundAdapter, InboundHttpExt, Mep};
+// for inbound adapter DSL entry
 // Service runtime placeholder: processor representing service logic.
 pub type ServiceProcessor =
     ClosureProcessor<Box<dyn Fn(&mut crate::Exchange) -> Result<()> + Send + Sync + 'static>>;
@@ -275,6 +278,136 @@ pub fn build_service_activators_from_spec(
         };
         let proc = service_processor_with_headers(Some(&id_final), s.ref_name());
         result.push(proc);
+    }
+    Ok(result)
+}
+
+/// Internal helper: common base builder for HTTP inbound adapter to reduce duplication.
+fn http_inbound_builder_base(
+    host: &str,
+    port: u16,
+    path: &str,
+    channel: ChannelRef,
+) -> allora_http::HttpInboundBuilder {
+    Adapter::inbound()
+        .http()
+        .host(host)
+        .port(port)
+        .base_path(path)
+        .channel(channel)
+}
+
+/// Build a single HTTP inbound adapter from a validated `HttpInboundAdapterSpec`.
+/// Requires a channel lookup function to resolve the `request-channel` id into a `ChannelRef`.
+/// Auto-ID Strategy (single build): if spec.id() absent, use HttpInboundBuilder default (http-inbound:<addr>). If present, enforce non-empty.
+pub fn build_http_inbound_adapter_from_spec(
+    spec: HttpInboundAdapterSpec,
+    channel_lookup: &dyn Fn(&str) -> Option<ChannelRef>,
+) -> Result<HttpInboundAdapter> {
+    let req_id = spec.request_channel();
+    if req_id.is_empty() {
+        return Err(Error::serialization(
+            "http-inbound-adapter.request-channel must not be empty",
+        ));
+    }
+    let ch = channel_lookup(req_id).ok_or_else(|| {
+        Error::serialization(format!(
+            "unknown channel id '{}' for http-inbound-adapter.request-channel",
+            req_id
+        ))
+    })?;
+    let mut builder = http_inbound_builder_base(spec.host(), spec.port(), spec.path(), ch.clone());
+    if let Some(id) = spec.id() { builder = builder.id(id); }
+    if let Some(reply_id) = spec.reply_channel() {
+        let rc = channel_lookup(reply_id).ok_or_else(|| {
+            Error::serialization(format!(
+                "unknown channel id '{}' for http-inbound-adapter.reply-channel",
+                reply_id
+            ))
+        })?;
+        // Setting reply_channel automatically forces InOut MEP in builder.build(); no need to set .mep explicitly.
+        builder = builder.reply_channel(rc);
+    }
+    // Only set explicit MEP for fire-and-forget when no reply channel.
+    if spec.reply_channel().is_none() { builder = builder.mep(Mep::InOnly202); }
+    Ok(builder.build())
+}
+
+/// Build multiple HTTP inbound adapters from a validated `HttpInboundAdaptersSpec`.
+/// Enforces uniqueness across explicit IDs and generates deterministic auto IDs (`http-inbound-adapter:auto.N`) for missing ones.
+pub fn build_http_inbound_adapters_from_spec(
+    spec: HttpInboundAdaptersSpec,
+    channel_lookup: &dyn Fn(&str) -> Option<ChannelRef>,
+) -> Result<Vec<HttpInboundAdapter>> {
+    let mut result = Vec::with_capacity(spec.adapters().len());
+    const AUTO_PREFIX: &str = "http-inbound-adapter:auto.";
+    let mut used = HashSet::new();
+    let mut max_auto_explicit = 0u64;
+    // First pass: explicit id validation & reserved pattern tracking
+    for a in spec.adapters() {
+        let req_id = a.request_channel();
+        if req_id.is_empty() {
+            return Err(Error::serialization(
+                "http-inbound-adapter.request-channel must not be empty",
+            ));
+        }
+        if let Some(id) = a.id() {
+            if id.is_empty() {
+                return Err(Error::serialization(
+                    "http-inbound-adapter.id must not be empty",
+                ));
+            }
+            if used.contains(id) {
+                return Err(Error::serialization(format!(
+                    "duplicate http-inbound-adapter.id '{}'",
+                    id
+                )));
+            }
+            if let Some(rest) = id.strip_prefix(AUTO_PREFIX) {
+                if let Ok(n) = rest.parse::<u64>() {
+                    max_auto_explicit = max_auto_explicit.max(n);
+                }
+            }
+            used.insert(id.to_string());
+        }
+    }
+    // Second pass: build adapters with generated IDs for missing ones
+    let mut auto_ctr = max_auto_explicit + 1;
+    for a in spec.adapters() {
+        let id_final = match a.id() {
+            Some(id) => id.to_string(),
+            None => {
+                let gen = format!("{AUTO_PREFIX}{auto_ctr}");
+                auto_ctr += 1;
+                let mut candidate = gen;
+                while used.contains(&candidate) {
+                    candidate = format!("{AUTO_PREFIX}{auto_ctr}");
+                    auto_ctr += 1;
+                }
+                used.insert(candidate.clone());
+                candidate
+            }
+        };
+        let ch = channel_lookup(a.request_channel()).ok_or_else(|| {
+            Error::serialization(format!(
+                "unknown channel id '{}' for http-inbound-adapter.request-channel",
+                a.request_channel()
+            ))
+        })?;
+        let mut builder = http_inbound_builder_base(a.host(), a.port(), a.path(), ch.clone()).id(id_final.clone());
+        if let Some(reply_id) = a.reply_channel() {
+            let rc = channel_lookup(reply_id).ok_or_else(|| {
+                Error::serialization(format!(
+                    "unknown channel id '{}' for http-inbound-adapter.reply-channel",
+                    reply_id
+                ))
+            })?;
+            // reply_channel implies InOut; builder will override MEP internally.
+            builder = builder.reply_channel(rc);
+        } else {
+            builder = builder.mep(Mep::InOnly202);
+        }
+        result.push(builder.build());
     }
     Ok(result)
 }

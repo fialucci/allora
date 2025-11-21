@@ -29,6 +29,10 @@ properties:
     # Optional collection of service activators reusing service-activators.schema.yml
     $ref: "local://schemas/v1/service-activators.schema.yml#/properties/service-activators"
     description: "Optional collection of service activator definitions (runtime processors)."
+  http-inbound-adapters:
+    # Optional collection of HTTP inbound adapters reusing http-inbound-adapters.schema.yml
+    $ref: "local://schemas/v1/http-inbound-adapters.schema.yml#/properties/http-inbound-adapters"
+    description: "Optional collection of HTTP inbound adapters (HTTP endpoints mapping to channels)."
 
 examples:
   - version: 1
@@ -39,6 +43,14 @@ examples:
         id: processed.orders
       - kind: direct
         id: error.deadletter
+    http-inbound-adapters:
+      - id: http.receiveGateway
+        host: 127.0.0.1
+        port: 8080
+        path: /receiveGateway
+        methods: [ POST ]
+        request-channel: receiveChannel
+        reply-channel: replyChannel
     filters:
       - id: filt.orders
         from: inbound.orders
