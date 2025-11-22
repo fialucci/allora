@@ -10,7 +10,7 @@ http-inbound-adapters:
   - id: http.receiveGateway
     host: 127.0.0.1
     port: 18080
-    # Webhook endpoint
+    # Endpoint
     path: /receiveGateway
     methods: [ POST ]
     # Channel that receives inbound HTTP requests

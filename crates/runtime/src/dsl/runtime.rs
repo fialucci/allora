@@ -52,6 +52,7 @@ use crate::dsl::component_builders::ServiceProcessor;
 use crate::service_activator_processor::ServiceActivatorProcessor;
 use crate::Filter;
 use crate::HttpInboundAdapter;
+use crate::HttpOutboundAdapter;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -66,6 +67,7 @@ pub struct AlloraRuntime {
     services: Vec<ServiceProcessor>,
     service_activator_processors: Vec<ServiceActivatorProcessor>,
     http_inbound_adapters: Vec<HttpInboundAdapter>,
+    http_outbound_adapters: Vec<HttpOutboundAdapter>,
 }
 
 impl AlloraRuntime {
@@ -80,6 +82,7 @@ impl AlloraRuntime {
             services: Vec::new(),
             service_activator_processors: Vec::new(),
             http_inbound_adapters: Vec::new(),
+            http_outbound_adapters: Vec::new(),
         }
     }
     /// Sets the filters for this runtime.
@@ -105,6 +108,10 @@ impl AlloraRuntime {
     /// Consumes the provided adapters vector and assigns it to the runtime.
     pub fn with_http_inbound_adapters(mut self, adapters: Vec<HttpInboundAdapter>) -> Self {
         self.http_inbound_adapters = adapters;
+        self
+    }
+    pub fn with_http_outbound_adapters(mut self, adapters: Vec<HttpOutboundAdapter>) -> Self {
+        self.http_outbound_adapters = adapters;
         self
     }
     /// Borrow all channels as an iterator of &dyn Channel (zero allocation).
@@ -225,5 +232,11 @@ impl AlloraRuntime {
     }
     pub fn http_inbound_adapter_count(&self) -> usize {
         self.http_inbound_adapters.len()
+    }
+    pub fn http_outbound_adapters(&self) -> &[HttpOutboundAdapter] {
+        &self.http_outbound_adapters
+    }
+    pub fn http_outbound_adapter_count(&self) -> usize {
+        self.http_outbound_adapters.len()
     }
 }

@@ -28,14 +28,28 @@ fn allora_spec_build_from_file_success() {
 }
 
 #[test]
-fn allora_spec_missing_channels_error() {
+fn allora_spec_missing_channels_success() {
     let raw = "version: 1"; // no channels
     let tf = temp_yaml(raw);
-    let err = build(tf.path()).expect_err("expected error");
-    match err {
-        allora::Error::Serialization(msg) => assert!(msg.contains("missing 'channels'")),
-        other => panic!("unexpected error: {other:?}"),
-    }
+    let runtime = build(tf.path()).expect("build top-level allora without channels");
+    assert_eq!(runtime.channel_count(), 0, "no channels expected");
+}
+
+#[test]
+fn allora_spec_outbound_only_success() {
+    let raw = r#"version: 1
+http-outbound-adapters:
+  - id: http.outboundEcho
+    host: 127.0.0.1
+    port: 18080
+    base-path: /receiveGateway
+    method: POST
+"#;
+    let tf = temp_yaml(raw);
+    let runtime = build(tf.path()).expect("build outbound-only allora");
+    assert_eq!(runtime.channel_count(), 0);
+    assert_eq!(runtime.http_outbound_adapter_count(), 1);
+    assert_eq!(runtime.http_outbound_adapters()[0].id(), "http.outboundEcho");
 }
 
 #[test]

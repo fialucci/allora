@@ -37,7 +37,16 @@
 //! #[async_trait]
 //! impl OutboundAdapter for LoggingOutbound {
 //!     async fn dispatch(&self, exchange: &Exchange) -> Result<OutboundDispatchResult> {
-//!         Ok(OutboundDispatchResult { acknowledged: true, message: exchange.out_msg.as_ref().and_then(|m| m.body_text()).map(|s| format!("echo:{s}")) })
+//!         Ok(OutboundDispatchResult {
+//!             acknowledged: true,
+//!             message: exchange
+//!                 .out_msg
+//!                 .as_ref()
+//!                 .and_then(|m| m.body_text())
+//!                 .map(|s| format!("echo:{s}")),
+//!             status_code: None,
+//!             body: None,
+//!         })
 //!     }
 //! }
 //! let adapter = LoggingOutbound;
@@ -103,6 +112,10 @@ pub struct OutboundDispatchResult {
     pub acknowledged: bool,
     /// Optional diagnostic or remote system message (e.g. HTTP status text, broker ack info).
     pub message: Option<String>,
+    /// Optional HTTP status code for the dispatch.
+    pub status_code: Option<u16>,
+    /// Optional body for the dispatch, if applicable.
+    pub body: Option<String>,
 }
 
 /// Outbound adapter: sends data derived from an `Exchange` to an external system.

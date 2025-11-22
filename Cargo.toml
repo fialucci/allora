@@ -6,7 +6,8 @@ members = [
     "crates/runtime",
     "crates/allora",
     "examples/basic/helloworld",
-    "examples/basic/http"
+    "examples/basic/http-inbound",
+    "examples/basic/http-outbound"
 ]
 resolver = "2"
 

@@ -118,6 +118,7 @@ use crate::{
 use component_builders::{
     build_channel_from_spec, build_channels_from_spec, build_filter_from_spec,
     build_filters_from_spec, build_http_inbound_adapters_from_spec, build_service_from_spec,
+    build_http_outbound_adapters_from_spec,
 };
 use std::path::Path;
 
@@ -226,6 +227,7 @@ fn build_runtime_from_str(raw: &str, format: DslFormat) -> Result<AlloraRuntime>
             let filters_spec = top.filters_spec().cloned();
             let services_spec = top.services_spec().cloned();
             let http_inbound_spec = top.http_inbound_adapters_spec().cloned();
+            let http_outbound_spec = top.http_outbound_adapters_spec().cloned();
             let channels_spec = top.into_channels_spec();
             let channels = build_channels_from_spec(channels_spec)?;
             let mut rt = AlloraRuntime::new(channels);
@@ -248,6 +250,10 @@ fn build_runtime_from_str(raw: &str, format: DslFormat) -> Result<AlloraRuntime>
                 let lookup = |id: &str| rt.channel_ref_by_id(id);
                 let adapters = build_http_inbound_adapters_from_spec(hspec, &lookup)?;
                 rt = rt.with_http_inbound_adapters(adapters);
+            }
+            if let Some(ospec) = http_outbound_spec {
+                let outbound = build_http_outbound_adapters_from_spec(ospec)?;
+                rt = rt.with_http_outbound_adapters(outbound);
             }
             Ok(rt)
         }

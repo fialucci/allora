@@ -1,0 +1,88 @@
+# Allora HTTP Outbound Adapter DSL Schema (v1)
+# Defines a single HTTP outbound adapter that maps an internal Exchange/Message
+# to an outbound HTTP request (client-side dispatch). Runtime wiring may later
+# allow automatic channel-driven dispatch; this schema focuses on adapter shape.
+
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "local://schemas/v1/http-outbound-adapter.schema.yml"
+
+title: "Allora HTTP Outbound Adapter Specification v1"
+description: "HTTP client endpoint configuration for dispatching messages outward"
+type: object
+required: [ version, http-outbound-adapter ]
+additionalProperties: false
+
+properties:
+  version:
+    type: integer
+    const: 1
+    description: "Schema version (must be 1)."
+
+  http-outbound-adapter:
+    type: object
+    description: "HTTP outbound adapter definition block"
+    required: [ host, port ]
+    additionalProperties: false
+    properties:
+      id:
+        type: string
+        minLength: 1
+        description: |
+          Optional explicit adapter identifier. Must be a non-empty string if provided.
+          Uniqueness is enforced during build. When omitted the runtime may assign a deterministic auto id.
+      host:
+        type: string
+        minLength: 1
+        description: "Remote host or IP the HTTP client targets (e.g. 127.0.0.1)."
+        default: 127.0.0.1
+      port:
+        type: integer
+        minimum: 1
+        maximum: 65535
+        description: "Remote TCP port."
+        default: 80
+      base-path:
+        type: string
+        minLength: 1
+        pattern: '^/.*'
+        description: |
+          Leading path prefix (must start with '/'). Defaults to '/'. The final
+          request path is base-path + optional path.
+        default: "/"
+      path:
+        type: string
+        minLength: 1
+        pattern: '^/.*'
+        description: |
+          Optional trailing path segment appended to base-path. Must start with '/'.
+          If omitted, dispatch uses only base-path.
+      method:
+        type: string
+        enum: [ GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD ]
+        description: "HTTP method for outbound requests."
+        default: POST
+      use-out-msg:
+        type: boolean
+        description: |
+          If true (default), adapter serializes exchange.out_msg when present,
+          falling back to exchange.in_msg. If false, always uses exchange.in_msg.
+        default: true
+      # Future fields (reserved): headers, timeout-ms, retry-policy, auth-ref
+
+examples:
+  - version: 1
+    http-outbound-adapter:
+      id: http.outboundEcho
+      host: 127.0.0.1
+      port: 18080
+      base-path: /api
+      path: /echo
+      method: POST
+      use-out-msg: true
+  - version: 1
+    http-outbound-adapter:
+      host: 10.0.0.5
+      port: 443
+      base-path: /v1
+      method: GET
+

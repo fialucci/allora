@@ -1,0 +1,17 @@
+[package]
+name = "allora-http-outbound-example"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Allora Contributors"]
+publish = false
+
+[dependencies]
+allora = { path = "../../../crates/allora" }
+allora-runtime = { path = "../../../crates/runtime" }
+allora-http = { path = "../../../crates/http" }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+tokio = { version = "1.39", features = ["rt-multi-thread", "macros", "sync", "signal"] }
+hyper = { version = "0.14", features = ["full"] }
+async-trait = "0.1"

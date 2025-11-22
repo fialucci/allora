@@ -67,12 +67,32 @@ use crate::adapter::Adapter;
 use crate::channel::ChannelRef;
 // already available via allora-core re-export
 use crate::spec::{HttpInboundAdapterSpec, HttpInboundAdaptersSpec};
+use crate::spec::{HttpOutboundAdapterSpec, HttpOutboundAdaptersSpec};
 use crate::{
     spec::{ChannelKindSpec, ChannelSpec, ChannelsSpec, FilterSpec, FiltersSpec},
     spec::{ServiceActivatorSpec, ServiceActivatorsSpec},
     Channel, ClosureProcessor, Error, Filter, Result,
 };
 use allora_http::{HttpInboundAdapter, InboundHttpExt, Mep};
+use allora_http::{HttpOutboundAdapter, OutboundHttpExt};
+use hyper::Method;
+
+/// Helper: parse HTTP method string into `hyper::Method`.
+/// Accepts common verbs (GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD) in uppercase; falls back
+/// to custom method parsing via `Method::from_bytes` (defaulting to POST if invalid).
+fn parse_http_method(m: &str) -> Method {
+    match m {
+        "GET" => Method::GET,
+        "POST" => Method::POST,
+        "PUT" => Method::PUT,
+        "PATCH" => Method::PATCH,
+        "DELETE" => Method::DELETE,
+        "OPTIONS" => Method::OPTIONS,
+        "HEAD" => Method::HEAD,
+        other => Method::from_bytes(other.as_bytes()).unwrap_or(Method::POST),
+    }
+}
+
 // for inbound adapter DSL entry
 // Service runtime placeholder: processor representing service logic.
 pub type ServiceProcessor =
@@ -298,8 +318,24 @@ fn http_inbound_builder_base(
 }
 
 /// Build a single HTTP inbound adapter from a validated `HttpInboundAdapterSpec`.
-/// Requires a channel lookup function to resolve the `request-channel` id into a `ChannelRef`.
-/// Auto-ID Strategy (single build): if spec.id() absent, use HttpInboundBuilder default (http-inbound:<addr>). If present, enforce non-empty.
+///
+/// ID Handling:
+/// * If `spec.id()` is `Some("")` an error is returned (`http-inbound-adapter.id must not be empty`).
+/// * If `spec.id()` is `None` the underlying inbound builder will auto-generate an id (e.g. `http-inbound:<addr>`).
+/// * Provided non-empty ids are accepted as-is (no uniqueness enforcement here; collection build enforces uniqueness).
+///
+/// Channel Resolution:
+/// * `request-channel` must be a non-empty string and must resolve via `channel_lookup` or an error is returned.
+/// * If `reply-channel` is provided it must resolve; presence implies InOut MEP automatically.
+/// * If no `reply-channel` is provided, MEP is forced to `InOnly202` (fire-and-forget with 202 acknowledgement).
+///
+/// Errors Returned:
+/// * Empty `request-channel`.
+/// * Unknown `request-channel` id.
+/// * Unknown `reply-channel` id.
+/// * Empty adapter id when explicitly supplied.
+///
+/// Auto-ID Strategy (single build): if `spec.id()` absent, use `HttpInboundBuilder` default; if present, enforce non-empty.
 pub fn build_http_inbound_adapter_from_spec(
     spec: HttpInboundAdapterSpec,
     channel_lookup: &dyn Fn(&str) -> Option<ChannelRef>,
@@ -317,7 +353,9 @@ pub fn build_http_inbound_adapter_from_spec(
         ))
     })?;
     let mut builder = http_inbound_builder_base(spec.host(), spec.port(), spec.path(), ch.clone());
-    if let Some(id) = spec.id() { builder = builder.id(id); }
+    if let Some(id) = spec.id() {
+        builder = builder.id(id);
+    }
     if let Some(reply_id) = spec.reply_channel() {
         let rc = channel_lookup(reply_id).ok_or_else(|| {
             Error::serialization(format!(
@@ -329,12 +367,37 @@ pub fn build_http_inbound_adapter_from_spec(
         builder = builder.reply_channel(rc);
     }
     // Only set explicit MEP for fire-and-forget when no reply channel.
-    if spec.reply_channel().is_none() { builder = builder.mep(Mep::InOnly202); }
+    if spec.reply_channel().is_none() {
+        builder = builder.mep(Mep::InOnly202);
+    }
     Ok(builder.build())
 }
 
 /// Build multiple HTTP inbound adapters from a validated `HttpInboundAdaptersSpec`.
-/// Enforces uniqueness across explicit IDs and generates deterministic auto IDs (`http-inbound-adapter:auto.N`) for missing ones.
+///
+/// ID Handling & Uniqueness:
+/// * Explicit non-empty ids must be unique; duplicates -> `Error::Serialization("duplicate http-inbound-adapter.id '<id>'")`.
+/// * Empty id string (explicit) -> error (`http-inbound-adapter.id must not be empty`).
+/// * Missing ids are generated deterministically as `http-inbound-adapter:auto.N` starting at 1 (or the next number after any explicitly supplied reserved `http-inbound-adapter:auto.<X>` ids) within this build invocation.
+/// * Generated ids skip values already used (explicit or previously generated) to avoid collisions.
+///
+/// Channel Resolution:
+/// * Each adapter must declare a non-empty `request-channel` that resolves via `channel_lookup`; otherwise an error is returned.
+/// * Optional `reply-channel` must resolve if present; its presence implies InOut MEP (request/reply) implicitly.
+/// * Absence of `reply-channel` forces MEP to `InOnly202` (fire-and-forget, 202 Accepted).
+///
+/// MEP Behavior:
+/// * InOut when `reply-channel` provided (adapter waits for correlated reply).
+/// * InOnly202 when `reply-channel` absent (adapter acknowledges immediately with 202).
+///
+/// Errors Returned:
+/// * Empty `request-channel`.
+/// * Unknown `request-channel` id.
+/// * Unknown `reply-channel` id.
+/// * Empty adapter id when explicitly supplied.
+/// * Duplicate explicit adapter id.
+///
+/// Order Preservation: Output vector preserves the input spec order.
 pub fn build_http_inbound_adapters_from_spec(
     spec: HttpInboundAdaptersSpec,
     channel_lookup: &dyn Fn(&str) -> Option<ChannelRef>,
@@ -394,7 +457,8 @@ pub fn build_http_inbound_adapters_from_spec(
                 a.request_channel()
             ))
         })?;
-        let mut builder = http_inbound_builder_base(a.host(), a.port(), a.path(), ch.clone()).id(id_final.clone());
+        let mut builder = http_inbound_builder_base(a.host(), a.port(), a.path(), ch.clone())
+            .id(id_final.clone());
         if let Some(reply_id) = a.reply_channel() {
             let rc = channel_lookup(reply_id).ok_or_else(|| {
                 Error::serialization(format!(
@@ -408,6 +472,128 @@ pub fn build_http_inbound_adapters_from_spec(
             builder = builder.mep(Mep::InOnly202);
         }
         result.push(builder.build());
+    }
+    Ok(result)
+}
+
+/// Build a single HTTP outbound adapter from a validated `HttpOutboundAdapterSpec`.
+///
+/// ID Handling:
+/// * If `spec.id()` is `Some("")` an error is returned (`http-outbound-adapter.id must not be empty`).
+/// * If `spec.id()` is `None` the underlying outbound builder will auto-generate a UUID-based id.
+/// * Provided non-empty ids are accepted as-is (no uniqueness enforcement here; collection build enforces).
+///
+/// Method Handling:
+/// * Recognized verbs (GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD) are mapped directly.
+/// * Unrecognized verb strings are passed to `Method::from_bytes`; failure falls back to POST.
+///
+/// Errors:
+/// * Empty id string.
+/// * (Indirect) build errors from the adapter builder (e.g. missing host/port handled upstream by spec parser).
+pub fn build_http_outbound_adapter_from_spec(
+    spec: HttpOutboundAdapterSpec,
+) -> Result<HttpOutboundAdapter> {
+    if let Some(id) = spec.id() {
+        if id.is_empty() {
+            return Err(Error::serialization(
+                "http-outbound-adapter.id must not be empty",
+            ));
+        }
+    }
+    let mut builder = Adapter::outbound()
+        .http()
+        .host(spec.host())
+        .port(spec.port())
+        .base_path(spec.base_path());
+    if let Some(p) = spec.path() {
+        builder = builder.path(p);
+    }
+    if let Some(m) = spec.method() {
+        builder = builder.method(parse_http_method(m));
+    }
+    if !spec.use_out_msg() {
+        builder = builder.use_out_msg(false);
+    }
+    if let Some(id) = spec.id() {
+        builder = builder.id(id);
+    }
+    builder.build()
+}
+
+/// Build multiple HTTP outbound adapters from a validated `HttpOutboundAdaptersSpec`.
+///
+/// Uniqueness & Auto-ID Strategy (mirrors inbound):
+/// * Explicit non-empty ids must be unique; duplicates -> `Error::Serialization("duplicate http-outbound-adapter.id '<id>'")`.
+/// * Empty id string -> error.
+/// * Missing ids are generated deterministically as `http-outbound-adapter:auto.N` starting at 1
+///   (or after any explicitly provided reserved `http-outbound-adapter:auto.<X>` ids) within a single build invocation.
+/// * Generated ids skip already used values (including explicitly supplied ones and earlier generated ones).
+///
+/// Method Handling uses `parse_http_method` (see single builder).
+///
+/// Returned adapters preserve the input order.
+pub fn build_http_outbound_adapters_from_spec(
+    spec: HttpOutboundAdaptersSpec,
+) -> Result<Vec<HttpOutboundAdapter>> {
+    let mut result = Vec::with_capacity(spec.adapters().len());
+    const AUTO_PREFIX: &str = "http-outbound-adapter:auto.";
+    let mut used = HashSet::new();
+    let mut max_auto_explicit = 0u64;
+    // First pass: validate explicit ids & track highest explicit auto id suffix.
+    for a in spec.adapters() {
+        if let Some(id) = a.id() {
+            if id.is_empty() {
+                return Err(Error::serialization(
+                    "http-outbound-adapter.id must not be empty",
+                ));
+            }
+            if used.contains(id) {
+                return Err(Error::serialization(format!(
+                    "duplicate http-outbound-adapter.id '{}'",
+                    id
+                )));
+            }
+            if let Some(rest) = id.strip_prefix(AUTO_PREFIX) {
+                if let Ok(n) = rest.parse::<u64>() {
+                    max_auto_explicit = max_auto_explicit.max(n);
+                }
+            }
+            used.insert(id.to_string());
+        }
+    }
+    // Second pass: build adapters assigning deterministic auto ids where missing.
+    let mut auto_ctr = max_auto_explicit + 1;
+    for a in spec.adapters() {
+        let id_final = match a.id() {
+            Some(id) => id.to_string(),
+            None => {
+                let mut candidate = format!("{AUTO_PREFIX}{auto_ctr}");
+                auto_ctr += 1;
+                while used.contains(&candidate) {
+                    candidate = format!("{AUTO_PREFIX}{auto_ctr}");
+                    auto_ctr += 1;
+                }
+                used.insert(candidate.clone());
+                candidate
+            }
+        };
+        let mut builder = Adapter::outbound()
+            .http()
+            .host(a.host())
+            .port(a.port())
+            .base_path(a.base_path())
+            .id(id_final);
+        if let Some(p) = a.path() {
+            builder = builder.path(p);
+        }
+        if let Some(m) = a.method() {
+            builder = builder.method(parse_http_method(m));
+        }
+        if !a.use_out_msg() {
+            builder = builder.use_out_msg(false);
+        }
+        let built = builder.build()?;
+        result.push(built);
     }
     Ok(result)
 }
