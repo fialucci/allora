@@ -1,0 +1,7 @@
+version: 1
+http-outbound-adapters:
+  - id: http.outboundEcho
+    host: 127.0.0.1
+    port: 18080
+    base-path: /receiveGateway
+    method: POST

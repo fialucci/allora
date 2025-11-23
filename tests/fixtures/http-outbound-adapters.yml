@@ -1,0 +1,14 @@
+version: 1
+http-outbound-adapters:
+  - id: http.outboundEcho
+    host: 127.0.0.1
+    port: 18080
+    base-path: /api
+    path: /echo
+    method: POST
+    use-out-msg: true
+  - host: api.service.internal
+    port: 443
+    base-path: /v1
+    method: GET
+

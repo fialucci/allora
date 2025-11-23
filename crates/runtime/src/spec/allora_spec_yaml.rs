@@ -24,8 +24,9 @@ use super::version::validate_version;
 use crate::error::{Error, Result};
 use crate::spec::{
     allora_spec::AlloraSpec, channels_spec_yaml::ChannelsSpecYamlParser,
-    filters_spec_yaml::FiltersSpecYamlParser, ChannelsSpec, FiltersSpec, ServiceActivatorsSpec,
-    ServiceSpecYamlParser, HttpInboundAdaptersSpec, HttpInboundAdaptersSpecYamlParser,
+    filters_spec_yaml::FiltersSpecYamlParser, ChannelsSpec, FiltersSpec, HttpInboundAdaptersSpec,
+    HttpInboundAdaptersSpecYamlParser, HttpOutboundAdaptersSpec,
+    HttpOutboundAdaptersSpecYamlParser, ServiceActivatorsSpec, ServiceSpecYamlParser,
 };
 use serde_yaml::Value as YamlValue;
 
@@ -34,31 +35,35 @@ pub struct AlloraSpecYamlParser;
 impl AlloraSpecYamlParser {
     pub fn parse_value(yaml: &YamlValue) -> Result<AlloraSpec> {
         let v = validate_version(yaml)?; // shared validation
-        let channels_root = yaml
-            .get("channels")
-            .ok_or_else(|| Error::serialization("missing 'channels'"))?;
-        if !channels_root.is_sequence() {
-            return Err(Error::serialization("'channels' must be a sequence"));
-        }
+        let channels_root_opt = yaml.get("channels");
+        // optional channels now; if missing -> empty collection
+        let mut all = if let Some(ch_root) = channels_root_opt {
+            if !ch_root.is_sequence() {
+                return Err(Error::serialization("'channels' must be a sequence"));
+            }
+            let mut obj = serde_yaml::Mapping::new();
+            obj.insert(
+                serde_yaml::Value::String("version".into()),
+                serde_yaml::Value::Number(serde_yaml::Number::from(v)),
+            );
+            obj.insert(
+                serde_yaml::Value::String("channels".into()),
+                ch_root.clone(),
+            );
+            let synthesized = serde_yaml::Value::Mapping(obj);
+            let channels_spec: ChannelsSpec = ChannelsSpecYamlParser::parse_value(&synthesized)?;
+            AlloraSpec::new(v, channels_spec)
+        } else {
+            AlloraSpec::new(v, ChannelsSpec::new(v))
+        };
         // optional filters
         let filters_root = yaml.get("filters");
         // optional services
         let services_root = yaml.get("service-activators");
         // optional http inbound adapters
         let http_inbound_root = yaml.get("http-inbound-adapters");
-        // Synthesize mapping for channel parser reuse
-        let mut obj = serde_yaml::Mapping::new();
-        obj.insert(
-            serde_yaml::Value::String("version".into()),
-            serde_yaml::Value::Number(serde_yaml::Number::from(v)),
-        );
-        obj.insert(
-            serde_yaml::Value::String("channels".into()),
-            channels_root.clone(),
-        );
-        let synthesized = serde_yaml::Value::Mapping(obj);
-        let channels_spec: ChannelsSpec = ChannelsSpecYamlParser::parse_value(&synthesized)?;
-        let mut all = AlloraSpec::new(v, channels_spec);
+        // optional http outbound adapters
+        let http_outbound_root = yaml.get("http-outbound-adapters");
         if let Some(fr) = filters_root {
             if !fr.is_sequence() {
                 return Err(Error::serialization("'filters' must be a sequence"));
@@ -111,7 +116,9 @@ impl AlloraSpecYamlParser {
         }
         if let Some(hr) = http_inbound_root {
             if !hr.is_sequence() {
-                return Err(Error::serialization("'http-inbound-adapters' must be a sequence"));
+                return Err(Error::serialization(
+                    "'http-inbound-adapters' must be a sequence",
+                ));
             }
             if hr.as_sequence().unwrap().is_empty() {
                 return Err(Error::serialization(
@@ -132,6 +139,31 @@ impl AlloraSpecYamlParser {
             let adapters_spec: HttpInboundAdaptersSpec =
                 HttpInboundAdaptersSpecYamlParser::parse_value(&hsynth)?;
             all = all.with_http_inbound_adapters(adapters_spec);
+        }
+        if let Some(oroot) = http_outbound_root {
+            if !oroot.is_sequence() {
+                return Err(Error::serialization(
+                    "'http-outbound-adapters' must be a sequence",
+                ));
+            }
+            if oroot.as_sequence().unwrap().is_empty() {
+                return Err(Error::serialization(
+                    "'http-outbound-adapters' sequence must not be empty",
+                ));
+            }
+            let mut oobj = serde_yaml::Mapping::new();
+            oobj.insert(
+                serde_yaml::Value::String("version".into()),
+                serde_yaml::Value::Number(serde_yaml::Number::from(v)),
+            );
+            oobj.insert(
+                serde_yaml::Value::String("http-outbound-adapters".into()),
+                oroot.clone(),
+            );
+            let osynth = serde_yaml::Value::Mapping(oobj);
+            let outbound_spec: HttpOutboundAdaptersSpec =
+                HttpOutboundAdaptersSpecYamlParser::parse_value(&osynth)?;
+            all = all.with_http_outbound_adapters(outbound_spec);
         }
         Ok(all)
     }

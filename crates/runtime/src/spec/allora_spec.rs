@@ -27,7 +27,7 @@
 //! ```
 //!
 
-use crate::spec::{ChannelsSpec, FiltersSpec, ServiceActivatorsSpec, HttpInboundAdaptersSpec};
+use crate::spec::{ChannelsSpec, FiltersSpec, ServiceActivatorsSpec, HttpInboundAdaptersSpec, HttpOutboundAdaptersSpec};
 
 #[derive(Debug, Clone)]
 pub struct AlloraSpec {
@@ -36,6 +36,7 @@ pub struct AlloraSpec {
     filters: Option<FiltersSpec>,
     services: Option<ServiceActivatorsSpec>,
     http_inbound_adapters: Option<HttpInboundAdaptersSpec>,
+    http_outbound_adapters: Option<HttpOutboundAdaptersSpec>,
 }
 
 impl AlloraSpec {
@@ -46,6 +47,7 @@ impl AlloraSpec {
             filters: None,
             services: None,
             http_inbound_adapters: None,
+            http_outbound_adapters: None,
         }
     }
     /// Construct with an optional filters collection in a single call (ergonomic alternative to chaining `with_filters`).
@@ -61,6 +63,7 @@ impl AlloraSpec {
             filters,
             services: None,
             http_inbound_adapters: None,
+            http_outbound_adapters: None,
         }
     }
     pub fn with_filters(mut self, filters: FiltersSpec) -> Self {
@@ -73,6 +76,10 @@ impl AlloraSpec {
     }
     pub fn with_http_inbound_adapters(mut self, adapters: HttpInboundAdaptersSpec) -> Self {
         self.http_inbound_adapters = Some(adapters);
+        self
+    }
+    pub fn with_http_outbound_adapters(mut self, adapters: HttpOutboundAdaptersSpec) -> Self {
+        self.http_outbound_adapters = Some(adapters);
         self
     }
     pub fn version(&self) -> u32 {
@@ -90,6 +97,9 @@ impl AlloraSpec {
     pub fn http_inbound_adapters_spec(&self) -> Option<&HttpInboundAdaptersSpec> {
         self.http_inbound_adapters.as_ref()
     }
+    pub fn http_outbound_adapters_spec(&self) -> Option<&HttpOutboundAdaptersSpec> {
+        self.http_outbound_adapters.as_ref()
+    }
     pub fn into_channels_spec(self) -> ChannelsSpec {
         self.channels
     }
@@ -101,5 +111,8 @@ impl AlloraSpec {
     }
     pub fn into_http_inbound_adapters_spec(self) -> Option<HttpInboundAdaptersSpec> {
         self.http_inbound_adapters
+    }
+    pub fn into_http_outbound_adapters_spec(self) -> Option<HttpOutboundAdaptersSpec> {
+        self.http_outbound_adapters
     }
 }

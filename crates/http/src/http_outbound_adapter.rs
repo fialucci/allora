@@ -199,9 +199,15 @@ impl OutboundAdapter for HttpOutboundAdapter {
             .await
             .map_err(|e| Error::other(e.to_string()))?;
         let status = resp.status();
+        let body_bytes = hyper::body::to_bytes(resp.into_body())
+            .await
+            .map_err(|e| Error::other(e.to_string()))?;
+        let body_string = String::from_utf8_lossy(&body_bytes).to_string();
         Ok(OutboundDispatchResult {
             acknowledged: status.is_success(),
             message: Some(format!("HTTP {}", status)),
+            status_code: Some(status.as_u16()),
+            body: Some(body_string),
         })
     }
 }
