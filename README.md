@@ -374,7 +374,6 @@ scenarios:
 
 - **Message enrichment**  
   Attach derived headers, correlation metadata, and computed properties in a reusable way.
-  1
 - **Protocol bridging**  
   Accept HTTP requests, transform payloads, and dispatch into internal channels for further processing or background
   work.
