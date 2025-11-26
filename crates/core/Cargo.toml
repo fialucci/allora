@@ -1,6 +1,6 @@
 [package]
 name = "allora-core"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["Allora Contributors"]
@@ -9,8 +9,8 @@ repository = "https://github.com/fialucci/allora"
 homepage = "https://github.com/fialucci/allora"
 documentation = "https://docs.rs/allora-core"
 readme = "README.md"
-keywords = ["integration", "eip", "messaging", "channel", "routing"]
-categories = ["network-programming", "asynchronous"]
+keywords = ["integration", "messaging", "routing", "eip", "patterns"]
+categories = ["asynchronous", "network-programming"]
 
 [lib]
 name = "allora_core"

@@ -1,16 +1,24 @@
 [package]
 name = "allora"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 license = "Apache-2.0"
+authors = ["Allora Contributors"]
+description = "Allora: Rust-native Enterprise Integration Patterns (EIP) with channels, routing, correlation, and adapters."
+repository = "https://github.com/fialucci/allora"
+homepage = "https://github.com/fialucci/allora"
+documentation = "https://docs.rs/allora"
+readme = "README.md"
+keywords = ["integration", "eip", "messaging", "routing", "event-driven"]
+categories = ["asynchronous", "network-programming", "development-tools"]
 
 [lib]
 name = "allora"
 path = "src/lib.rs"
 
 [dependencies]
-allora-core = { path = "../core" }
-allora-runtime = { path = "../runtime" }
-allora-http = { path = "../http" }
-allora-macros = { path = "../macros" }
+allora-core = { version = "0.0.1", path = "../core" }
+allora-runtime = { version = "0.0.1", path = "../runtime" }
+allora-http = { version = "0.0.1", path = "../http" }
+allora-macros = { version = "0.0.1", path = "../macros" }
 inventory = "0.3"

@@ -1,6 +1,6 @@
 [package]
 name = "allora-runtime"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 authors = ["Allora Contributors"]
 description = "Allora runtime and DSL implementation (internal crate)."
@@ -9,8 +9,8 @@ repository = "https://github.com/fialucci/allora"
 homepage = "https://github.com/fialucci/allora"
 documentation = "https://docs.rs/allora-runtime"
 readme = "README.md"
-keywords = ["integration", "runtime", "dsl"]
-categories = ["network-programming", "asynchronous"]
+keywords = ["runtime", "async", "integration", "messaging", "scheduler"]
+categories = ["asynchronous", "network-programming"]
 
 [lib]
 name = "allora_runtime"
@@ -21,8 +21,8 @@ tracing = "0.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 inventory = "0.3"
-allora-core = { path = "../core" }
-allora-http = { path = "../http" }
+allora-core = { version = "0.0.1", path = "../core" }
+allora-http = { version = "0.0.1", path = "../http" }
 hyper = { version = "0.14", features = ["client", "http1"] }
 
 [dependencies.tokio]
