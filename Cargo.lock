@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "allora"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "allora-core",
  "allora-http",
@@ -24,7 +24,7 @@ dependencies = [
 
 [[package]]
 name = "allora-core"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "once_cell",
@@ -41,7 +41,7 @@ dependencies = [
 
 [[package]]
 name = "allora-helloworld"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "allora",
  "async-trait",
@@ -51,7 +51,7 @@ dependencies = [
 
 [[package]]
 name = "allora-http"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "allora-core",
  "async-trait",
@@ -64,7 +64,7 @@ dependencies = [
 
 [[package]]
 name = "allora-http-inbound-example"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "allora",
  "allora-runtime",
@@ -78,7 +78,7 @@ dependencies = [
 
 [[package]]
 name = "allora-http-outbound-example"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "allora",
  "allora-http",
@@ -92,7 +92,7 @@ dependencies = [
 
 [[package]]
 name = "allora-macros"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -101,7 +101,7 @@ dependencies = [
 
 [[package]]
 name = "allora-runtime"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "allora-core",
  "allora-http",
