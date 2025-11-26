@@ -1,6 +1,6 @@
 [package]
 name = "allora-http"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["Allora Contributors"]
@@ -9,16 +9,16 @@ repository = "https://github.com/fialucci/allora"
 homepage = "https://github.com/fialucci/allora"
 documentation = "https://docs.rs/allora-http"
 readme = "README.md"
-keywords = ["http", "integration", "adapter", "routing"]
-categories = ["network-programming", "asynchronous"]
+keywords = ["http", "webhook", "integration", "client", "server"]
+categories = ["web-programming::http-server", "web-programming::http-client", "network-programming"]
 
 [lib]
 name = "allora_http"
 path = "src/lib.rs"
 
 [dependencies]
-allora-core = { path = "../core" }
-tokio = { version = "1.39", features = ["rt", "rt-multi-thread", "macros", "sync" ] }
+allora-core = { version = "0.0.1", path = "../core" }
+tokio = { version = "1.39", features = ["rt", "rt-multi-thread", "macros", "sync"] }
 hyper = { version = "0.14", features = ["full"] }
 tracing = "0.1"
 serde_json = "1.0"

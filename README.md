@@ -125,7 +125,7 @@ Pin to a tagged release (recommended for reproducible builds):
 
 ```toml
 [dependencies]
-allora = { git = "https://github.com/fialucci/allora", tag = "v0.1.0" }
+allora = { git = "https://github.com/fialucci/allora", tag = "v0.0.1" }
 tokio = { version = "1", features = ["full"] }
 ```
 
