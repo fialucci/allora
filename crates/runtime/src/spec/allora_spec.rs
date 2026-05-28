@@ -27,7 +27,10 @@
 //! ```
 //!
 
-use crate::spec::{ChannelsSpec, FiltersSpec, ServiceActivatorsSpec, HttpInboundAdaptersSpec, HttpOutboundAdaptersSpec};
+use crate::spec::{
+    AggregatorsSpec, ChannelsSpec, FiltersSpec, HttpInboundAdaptersSpec, HttpOutboundAdaptersSpec,
+    ServiceActivatorsSpec,
+};
 
 #[derive(Debug, Clone)]
 pub struct AlloraSpec {
@@ -37,6 +40,7 @@ pub struct AlloraSpec {
     services: Option<ServiceActivatorsSpec>,
     http_inbound_adapters: Option<HttpInboundAdaptersSpec>,
     http_outbound_adapters: Option<HttpOutboundAdaptersSpec>,
+    aggregators: Option<AggregatorsSpec>,
 }
 
 impl AlloraSpec {
@@ -48,6 +52,7 @@ impl AlloraSpec {
             services: None,
             http_inbound_adapters: None,
             http_outbound_adapters: None,
+            aggregators: None,
         }
     }
     /// Construct with an optional filters collection in a single call (ergonomic alternative to chaining `with_filters`).
@@ -64,6 +69,7 @@ impl AlloraSpec {
             services: None,
             http_inbound_adapters: None,
             http_outbound_adapters: None,
+            aggregators: None,
         }
     }
     pub fn with_filters(mut self, filters: FiltersSpec) -> Self {
@@ -80,6 +86,10 @@ impl AlloraSpec {
     }
     pub fn with_http_outbound_adapters(mut self, adapters: HttpOutboundAdaptersSpec) -> Self {
         self.http_outbound_adapters = Some(adapters);
+        self
+    }
+    pub fn with_aggregators(mut self, aggregators: AggregatorsSpec) -> Self {
+        self.aggregators = Some(aggregators);
         self
     }
     pub fn version(&self) -> u32 {
@@ -100,6 +110,9 @@ impl AlloraSpec {
     pub fn http_outbound_adapters_spec(&self) -> Option<&HttpOutboundAdaptersSpec> {
         self.http_outbound_adapters.as_ref()
     }
+    pub fn aggregators_spec(&self) -> Option<&AggregatorsSpec> {
+        self.aggregators.as_ref()
+    }
     pub fn into_channels_spec(self) -> ChannelsSpec {
         self.channels
     }
@@ -114,5 +127,8 @@ impl AlloraSpec {
     }
     pub fn into_http_outbound_adapters_spec(self) -> Option<HttpOutboundAdaptersSpec> {
         self.http_outbound_adapters
+    }
+    pub fn into_aggregators_spec(self) -> Option<AggregatorsSpec> {
+        self.aggregators
     }
 }

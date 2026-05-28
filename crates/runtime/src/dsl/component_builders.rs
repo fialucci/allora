@@ -66,6 +66,8 @@
 use crate::adapter::Adapter;
 use crate::channel::ChannelRef;
 // already available via allora-core re-export
+use crate::dsl::PatternRegistry;
+use crate::spec::{AggregatorSpec, AggregatorsSpec};
 use crate::spec::{HttpInboundAdapterSpec, HttpInboundAdaptersSpec};
 use crate::spec::{HttpOutboundAdapterSpec, HttpOutboundAdaptersSpec};
 use crate::{
@@ -73,9 +75,11 @@ use crate::{
     spec::{ServiceActivatorSpec, ServiceActivatorsSpec},
     Channel, ClosureProcessor, Error, Filter, Result,
 };
+use allora_core::patterns::aggregator::Aggregator;
 use allora_http::{HttpInboundAdapter, InboundHttpExt, Mep};
 use allora_http::{HttpOutboundAdapter, OutboundHttpExt};
 use hyper::Method;
+use std::collections::HashMap;
 
 /// Helper: parse HTTP method string into `hyper::Method`.
 /// Accepts common verbs (GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD) in uppercase; falls back
@@ -596,4 +600,326 @@ pub fn build_http_outbound_adapters_from_spec(
         result.push(built);
     }
     Ok(result)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Aggregator (EIP pattern in YAML DSL — see P9)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Build a single [`Aggregator`] from a validated [`AggregatorSpec`].
+///
+/// Resolves `completion`, `strategy`, and `store` registry names through
+/// `registry`. Defaults applied when fields are absent:
+/// * `strategy` → none set on the aggregator (back-compat `ConcatText` from
+///   `Aggregator::new` semantics is still the active default at runtime).
+/// * `store` → none set; the aggregator uses its built-in `InMemoryGroupStore`.
+///
+/// Errors when:
+/// * `aggregator.correlation_header` is empty (defensive — parser should have
+///   already rejected this).
+/// * `aggregator.id` (if explicitly provided) is empty.
+/// * Any referenced name fails to resolve in `registry`.
+pub fn build_aggregator_from_spec(
+    spec: AggregatorSpec,
+    registry: &PatternRegistry,
+) -> Result<Aggregator> {
+    if let Some(id) = spec.id() {
+        if id.is_empty() {
+            return Err(Error::serialization("aggregator.id must not be empty"));
+        }
+    }
+    if spec.correlation_header().is_empty() {
+        return Err(Error::serialization(
+            "aggregator.correlation_header must not be empty",
+        ));
+    }
+
+    let completion = registry.completion(spec.completion()).ok_or_else(|| {
+        Error::serialization(format!(
+            "unknown completion '{}' for aggregator (registered completions: [{}])",
+            spec.completion(),
+            registry.completion_names().join(", ")
+        ))
+    })?;
+
+    let mut agg = Aggregator::with_completion(spec.correlation_header(), completion);
+
+    if let Some(strategy_name) = spec.strategy() {
+        let strategy = registry.strategy(strategy_name).ok_or_else(|| {
+            Error::serialization(format!(
+                "unknown strategy '{}' for aggregator (registered strategies: [{}])",
+                strategy_name,
+                registry.strategy_names().join(", ")
+            ))
+        })?;
+        agg = agg.with_strategy(strategy);
+    }
+
+    if let Some(store_name) = spec.store() {
+        let store = registry.store(store_name).ok_or_else(|| {
+            Error::serialization(format!(
+                "unknown store '{}' for aggregator (registered stores: [{}])",
+                store_name,
+                registry.store_names().join(", ")
+            ))
+        })?;
+        agg = agg.with_store(store);
+    }
+
+    Ok(agg)
+}
+
+/// Build multiple aggregators from an [`AggregatorsSpec`], keyed by id.
+///
+/// ID Strategy (mirrors filters / channels):
+/// * Explicit non-empty `aggregator.id` values must be unique; duplicates →
+///   `Error::Serialization("duplicate aggregator.id '<id>'")`.
+/// * Missing ids are generated deterministically as `aggregator:auto.N` starting
+///   at 1 (or the next number after any explicitly supplied reserved
+///   `aggregator:auto.<X>` ids) within this build invocation.
+/// * Generated ids skip values already used.
+///
+/// Returns a `HashMap<id, Aggregator>` so consumers can look up by id.
+/// Order-preserving callers can iterate `spec.aggregators()` separately.
+pub fn build_aggregators_from_spec(
+    spec: AggregatorsSpec,
+    registry: &PatternRegistry,
+) -> Result<HashMap<String, Aggregator>> {
+    const AUTO_PREFIX: &str = "aggregator:auto.";
+    let mut used: HashSet<String> = HashSet::new();
+    let mut max_auto_explicit = 0u64;
+
+    // First pass: validate explicit ids + track highest reserved auto-suffix.
+    for a in spec.aggregators() {
+        if let Some(id) = a.id() {
+            if id.is_empty() {
+                return Err(Error::serialization("aggregator.id must not be empty"));
+            }
+            if used.contains(id) {
+                return Err(Error::serialization(format!(
+                    "duplicate aggregator.id '{id}'"
+                )));
+            }
+            if let Some(rest) = id.strip_prefix(AUTO_PREFIX) {
+                if let Ok(n) = rest.parse::<u64>() {
+                    max_auto_explicit = max_auto_explicit.max(n);
+                }
+            }
+            used.insert(id.to_string());
+        }
+    }
+
+    // Second pass: build with deterministic auto-ids where missing.
+    let mut auto_ctr = max_auto_explicit + 1;
+    let mut result: HashMap<String, Aggregator> = HashMap::with_capacity(spec.aggregators().len());
+    for a in spec.aggregators() {
+        let id_final = match a.id() {
+            Some(id) => id.to_string(),
+            None => {
+                let mut candidate = format!("{AUTO_PREFIX}{auto_ctr}");
+                auto_ctr += 1;
+                while used.contains(&candidate) {
+                    candidate = format!("{AUTO_PREFIX}{auto_ctr}");
+                    auto_ctr += 1;
+                }
+                used.insert(candidate.clone());
+                candidate
+            }
+        };
+        let built = build_aggregator_from_spec(a.clone(), registry)?;
+        result.insert(id_final, built);
+    }
+    Ok(result)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests (aggregator builder + registry)
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod aggregator_tests {
+    use super::*;
+    use allora_core::patterns::aggregator::CompletionCondition;
+    use allora_core::Message;
+    use std::sync::Arc;
+    use std::time::Instant;
+
+    struct CountAtLeast(usize);
+    impl CompletionCondition for CountAtLeast {
+        fn is_complete(&self, group: &[Message], _: Instant) -> bool {
+            group.len() >= self.0
+        }
+    }
+
+    fn registry_with_test_completion() -> PatternRegistry {
+        let mut r = PatternRegistry::with_defaults();
+        r.register_completion("test.count_at_least_3", Arc::new(CountAtLeast(3)));
+        r
+    }
+
+    #[test]
+    fn build_single_with_completion_only() {
+        let spec = AggregatorSpec::new("corr", "test.count_at_least_3");
+        let _agg = build_aggregator_from_spec(spec, &registry_with_test_completion())
+            .expect("build succeeds");
+        // Aggregator constructed; further behavior covered by allora_core tests.
+    }
+
+    #[test]
+    fn build_single_with_strategy_and_store_refs_resolved() {
+        // Resolve both the built-in strategy `allora.emit_signal` and a
+        // consumer-registered (in-memory) store.
+        let mut registry = registry_with_test_completion();
+        registry.register_store(
+            "test.in_mem",
+            Arc::new(allora_core::patterns::aggregator::InMemoryGroupStore::new()),
+        );
+        let spec = AggregatorSpec::new("corr", "test.count_at_least_3")
+            .set_strategy(crate::dsl::STRATEGY_EMIT_SIGNAL)
+            .set_store("test.in_mem");
+        let _agg = build_aggregator_from_spec(spec, &registry).expect("build succeeds");
+    }
+
+    #[test]
+    fn build_fails_on_unknown_completion_with_helpful_message() {
+        let spec = AggregatorSpec::new("corr", "nope.does.not.exist");
+        let err = build_aggregator_from_spec(spec, &PatternRegistry::with_defaults())
+            .expect_err("must error");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unknown completion 'nope.does.not.exist'"),
+            "error message should name the missing key, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn build_fails_on_unknown_strategy() {
+        let spec = AggregatorSpec::new("corr", "test.count_at_least_3").set_strategy("nope");
+        let err = build_aggregator_from_spec(spec, &registry_with_test_completion())
+            .expect_err("must error");
+        assert!(err.to_string().contains("unknown strategy 'nope'"));
+    }
+
+    #[test]
+    fn build_fails_on_unknown_store() {
+        let spec = AggregatorSpec::new("corr", "test.count_at_least_3").set_store("nope");
+        let err = build_aggregator_from_spec(spec, &registry_with_test_completion())
+            .expect_err("must error");
+        assert!(err.to_string().contains("unknown store 'nope'"));
+    }
+
+    #[test]
+    fn collection_auto_ids_and_uniqueness() {
+        let r = registry_with_test_completion();
+        let spec = AggregatorsSpec::new(1)
+            .add(AggregatorSpec::with_id(
+                "explicit.a",
+                "corr",
+                "test.count_at_least_3",
+            ))
+            .add(AggregatorSpec::new("corr", "test.count_at_least_3"))
+            .add(AggregatorSpec::new("corr2", "test.count_at_least_3"));
+        let built = build_aggregators_from_spec(spec, &r).expect("build succeeds");
+        assert_eq!(built.len(), 3);
+        assert!(built.contains_key("explicit.a"));
+        assert!(built.contains_key("aggregator:auto.1"));
+        assert!(built.contains_key("aggregator:auto.2"));
+    }
+
+    #[test]
+    fn collection_rejects_duplicate_explicit_ids() {
+        let r = registry_with_test_completion();
+        let spec = AggregatorsSpec::new(1)
+            .add(AggregatorSpec::with_id("dup", "corr", "test.count_at_least_3"))
+            .add(AggregatorSpec::with_id("dup", "corr2", "test.count_at_least_3"));
+        let err = build_aggregators_from_spec(spec, &r).expect_err("must error");
+        assert!(err.to_string().contains("duplicate aggregator.id 'dup'"));
+    }
+
+    #[test]
+    fn auto_ids_skip_past_explicit_reserved_pattern() {
+        let r = registry_with_test_completion();
+        // Explicit `aggregator:auto.5` should push generated ids past 5.
+        let spec = AggregatorsSpec::new(1)
+            .add(AggregatorSpec::with_id(
+                "aggregator:auto.5",
+                "corr",
+                "test.count_at_least_3",
+            ))
+            .add(AggregatorSpec::new("corr", "test.count_at_least_3"));
+        let built = build_aggregators_from_spec(spec, &r).expect("build succeeds");
+        assert!(built.contains_key("aggregator:auto.5"));
+        assert!(built.contains_key("aggregator:auto.6"));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Full pipeline: parse `allora.yaml` → AlloraSpec → build aggregators via
+    // PatternRegistry. The shape of the YAML below is exactly what the
+    // Fialucci chain's `allora.yaml` will use for the Q1c declarative
+    // finality cut-over.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn end_to_end_allora_yaml_with_aggregators_section() {
+        use crate::spec::AlloraSpecYamlParser;
+        let raw = r#"
+version: 1
+channels:
+  - kind: direct
+    id: attestations
+aggregators:
+  - id: finality_quorum
+    correlation_header: block_hash
+    completion: test.count_at_least_3
+    strategy: allora.emit_signal
+  - correlation_header: oracle_submission_id
+    completion: test.count_at_least_3
+"#;
+        let parsed = AlloraSpecYamlParser::parse_str(raw).expect("yaml parse ok");
+        assert_eq!(parsed.version(), 1);
+        assert_eq!(parsed.channels_spec().channels().len(), 1);
+        let aggs_spec = parsed
+            .aggregators_spec()
+            .expect("aggregators section present");
+        assert_eq!(aggs_spec.aggregators().len(), 2);
+        // First one has explicit id; second one will get auto-id.
+        assert_eq!(aggs_spec.aggregators()[0].id(), Some("finality_quorum"));
+        assert_eq!(aggs_spec.aggregators()[1].id(), None);
+
+        // Build them via a registry. The chain follows exactly this pattern
+        // — register completion / strategy / store impls, then build.
+        let mut registry = PatternRegistry::with_defaults();
+        registry.register_completion("test.count_at_least_3", Arc::new(CountAtLeast(3)));
+        let built = build_aggregators_from_spec(aggs_spec.clone(), &registry)
+            .expect("aggregators build ok");
+        assert_eq!(built.len(), 2);
+        assert!(built.contains_key("finality_quorum"));
+        assert!(built.contains_key("aggregator:auto.1"));
+    }
+
+    #[test]
+    fn end_to_end_yaml_unknown_strategy_surfaces_clear_error() {
+        use crate::spec::AlloraSpecYamlParser;
+        let raw = r#"
+version: 1
+aggregators:
+  - id: bad
+    correlation_header: x
+    completion: test.count_at_least_3
+    strategy: nope.unknown
+"#;
+        let parsed = AlloraSpecYamlParser::parse_str(raw).expect("yaml parse ok");
+        let mut registry = PatternRegistry::with_defaults();
+        registry.register_completion("test.count_at_least_3", Arc::new(CountAtLeast(3)));
+        let err = build_aggregators_from_spec(
+            parsed.into_aggregators_spec().expect("aggregators present"),
+            &registry,
+        )
+        .expect_err("must error on unknown strategy");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unknown strategy 'nope.unknown'"),
+            "error must name the unknown ref, got: {msg}"
+        );
+    }
 }
