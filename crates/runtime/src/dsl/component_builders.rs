@@ -733,9 +733,8 @@ pub fn build_aggregators_from_spec(
                 candidate
             }
         };
-        let built = build_aggregator_from_spec(a.clone(), registry).map_err(|e| {
-            Error::serialization(format!("{e} (in aggregator '{id_final}')"))
-        })?;
+        let built = build_aggregator_from_spec(a.clone(), registry)
+            .map_err(|e| Error::serialization(format!("{e} (in aggregator '{id_final}')")))?;
         result.push((id_final, built));
     }
     Ok(result)
@@ -842,8 +841,16 @@ mod aggregator_tests {
     fn collection_rejects_duplicate_explicit_ids() {
         let r = registry_with_test_completion();
         let spec = AggregatorsSpec::new(1)
-            .add(AggregatorSpec::with_id("dup", "corr", "test.count_at_least_3"))
-            .add(AggregatorSpec::with_id("dup", "corr2", "test.count_at_least_3"));
+            .add(AggregatorSpec::with_id(
+                "dup",
+                "corr",
+                "test.count_at_least_3",
+            ))
+            .add(AggregatorSpec::with_id(
+                "dup",
+                "corr2",
+                "test.count_at_least_3",
+            ));
         let err = build_aggregators_from_spec(spec, &r).expect_err("must error");
         assert!(err.to_string().contains("duplicate aggregator.id 'dup'"));
     }
