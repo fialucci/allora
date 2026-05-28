@@ -46,10 +46,7 @@ jobs:
             local crate="$1"
             local version="$2"
 
-            if cargo search "^${crate}$" --limit 1 | grep -q "${crate} = \"${version}\""; then
-              return 0
-            fi
-            return 1
+            cargo info "${crate}@${version}" >/dev/null 2>&1
           }
 
           wait_for_crate() {
@@ -68,8 +65,8 @@ jobs:
               echo "${crate} v${version} not visible yet (attempt ${attempt}/${max_attempts}). Sleeping ${delay}s..."
               sleep "${delay}"
 
-              # Exponential backoff up to 60 seconds
-              if [ "${delay}" -lt 60 ]; then
+              # Exponential backoff, capped at 80s (10 → 20 → 40 → 80).
+              if [ "${delay}" -lt 80 ]; then
                 delay=$((delay * 2))
               fi
             done
