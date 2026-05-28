@@ -58,6 +58,10 @@
 //! `dsl/mod.rs` exposes user-facing build APIs (`build()`, `build_channel()`), performing format inference.
 //!
 //! This documentation intentionally avoids redundancy; for architecture-wide details see crate root docs.
+pub mod aggregator_spec;
+pub mod aggregator_spec_yaml;
+pub mod aggregators_spec;
+pub mod aggregators_spec_yaml;
 pub mod allora_spec;
 pub mod allora_spec_yaml;
 pub mod channel_spec;
@@ -81,6 +85,10 @@ pub mod service_spec_yaml;
 pub mod services_spec;
 pub mod version;
 
+pub use aggregator_spec::AggregatorSpec;
+pub use aggregator_spec_yaml::AggregatorSpecYamlParser;
+pub use aggregators_spec::AggregatorsSpec;
+pub use aggregators_spec_yaml::AggregatorsSpecYamlParser;
 pub use allora_spec::AlloraSpec;
 pub use allora_spec_yaml::AlloraSpecYamlParser;
 pub use channel_spec::{ChannelKindSpec, ChannelSpec};

@@ -123,7 +123,11 @@ use component_builders::{
 use std::path::Path;
 
 pub mod component_builders;
+pub mod pattern_registry;
 pub mod runtime;
+pub use pattern_registry::{
+    PatternRegistry, STRATEGY_CONCAT_TEXT, STRATEGY_EMIT_SIGNAL, STRATEGY_JSON_ARRAY,
+};
 use runtime::AlloraRuntime;
 
 /// Supported DSL input formats.

@@ -23,8 +23,9 @@
 use super::version::validate_version;
 use crate::error::{Error, Result};
 use crate::spec::{
-    allora_spec::AlloraSpec, channels_spec_yaml::ChannelsSpecYamlParser,
-    filters_spec_yaml::FiltersSpecYamlParser, ChannelsSpec, FiltersSpec, HttpInboundAdaptersSpec,
+    aggregators_spec_yaml::AggregatorsSpecYamlParser, allora_spec::AlloraSpec,
+    channels_spec_yaml::ChannelsSpecYamlParser, filters_spec_yaml::FiltersSpecYamlParser,
+    AggregatorsSpec, ChannelsSpec, FiltersSpec, HttpInboundAdaptersSpec,
     HttpInboundAdaptersSpecYamlParser, HttpOutboundAdaptersSpec,
     HttpOutboundAdaptersSpecYamlParser, ServiceActivatorsSpec, ServiceSpecYamlParser,
 };
@@ -139,6 +140,29 @@ impl AlloraSpecYamlParser {
             let adapters_spec: HttpInboundAdaptersSpec =
                 HttpInboundAdaptersSpecYamlParser::parse_value(&hsynth)?;
             all = all.with_http_inbound_adapters(adapters_spec);
+        }
+        // optional aggregators (P9 — patterns in the YAML DSL)
+        if let Some(aroot) = yaml.get("aggregators") {
+            if !aroot.is_sequence() {
+                return Err(Error::serialization("'aggregators' must be a sequence"));
+            }
+            if aroot.as_sequence().unwrap().is_empty() {
+                return Err(Error::serialization(
+                    "'aggregators' sequence must not be empty",
+                ));
+            }
+            let mut aobj = serde_yaml::Mapping::new();
+            aobj.insert(
+                serde_yaml::Value::String("version".into()),
+                serde_yaml::Value::Number(serde_yaml::Number::from(v)),
+            );
+            aobj.insert(
+                serde_yaml::Value::String("aggregators".into()),
+                aroot.clone(),
+            );
+            let asynth = serde_yaml::Value::Mapping(aobj);
+            let aggs_spec: AggregatorsSpec = AggregatorsSpecYamlParser::parse_value(&asynth)?;
+            all = all.with_aggregators(aggs_spec);
         }
         if let Some(oroot) = http_outbound_root {
             if !oroot.is_sequence() {

@@ -176,6 +176,18 @@ impl AggregationStrategy for ConcatText {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct JsonArray;
 
+/// Always emits an empty [`Message`] when the completion condition fires. Use when the aggregator
+/// is being treated as a pure "quorum reached" signal — the caller doesn't care about the group's
+/// contents (typically it re-reads authoritative state from elsewhere on the signal).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct EmitSignal;
+
+impl AggregationStrategy for EmitSignal {
+    fn combine(&self, _group: Vec<Message>) -> Option<Message> {
+        Some(Message::default())
+    }
+}
+
 impl AggregationStrategy for JsonArray {
     fn combine(&self, group: Vec<Message>) -> Option<Message> {
         let arr: Vec<serde_json::Value> = group
