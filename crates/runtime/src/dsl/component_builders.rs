@@ -79,7 +79,6 @@ use allora_core::patterns::aggregator::Aggregator;
 use allora_http::{HttpInboundAdapter, InboundHttpExt, Mep};
 use allora_http::{HttpOutboundAdapter, OutboundHttpExt};
 use hyper::Method;
-use std::collections::HashMap;
 
 /// Helper: parse HTTP method string into `hyper::Method`.
 /// Accepts common verbs (GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD) in uppercase; falls back
@@ -669,7 +668,7 @@ pub fn build_aggregator_from_spec(
     Ok(agg)
 }
 
-/// Build multiple aggregators from an [`AggregatorsSpec`], keyed by id.
+/// Build multiple aggregators from an [`AggregatorsSpec`].
 ///
 /// ID Strategy (mirrors filters / channels):
 /// * Explicit non-empty `aggregator.id` values must be unique; duplicates →
@@ -679,12 +678,19 @@ pub fn build_aggregator_from_spec(
 ///   `aggregator:auto.<X>` ids) within this build invocation.
 /// * Generated ids skip values already used.
 ///
-/// Returns a `HashMap<id, Aggregator>` so consumers can look up by id.
-/// Order-preserving callers can iterate `spec.aggregators()` separately.
+/// Returns `Vec<(id, Aggregator)>` — **declaration-order preserving**. Auto-ids
+/// (`aggregator:auto.N`) are computed inside this builder and aren't recoverable
+/// from the input spec, so the result must carry them out for consumers to look
+/// up by id. Convert to a [`std::collections::HashMap`] with
+/// `built.into_iter().collect::<HashMap<_, _>>()` when order isn't needed.
+///
+/// Per-entry build failures (unknown completion / strategy / store ref) are
+/// wrapped with the assigned id so diagnostics identify *which* aggregator
+/// failed — e.g. `"unknown completion 'foo' ... (in aggregator 'finality_quorum')"`.
 pub fn build_aggregators_from_spec(
     spec: AggregatorsSpec,
     registry: &PatternRegistry,
-) -> Result<HashMap<String, Aggregator>> {
+) -> Result<Vec<(String, Aggregator)>> {
     const AUTO_PREFIX: &str = "aggregator:auto.";
     let mut used: HashSet<String> = HashSet::new();
     let mut max_auto_explicit = 0u64;
@@ -709,9 +715,10 @@ pub fn build_aggregators_from_spec(
         }
     }
 
-    // Second pass: build with deterministic auto-ids where missing.
+    // Second pass: build with deterministic auto-ids where missing. Preserves
+    // input declaration order in the output Vec.
     let mut auto_ctr = max_auto_explicit + 1;
-    let mut result: HashMap<String, Aggregator> = HashMap::with_capacity(spec.aggregators().len());
+    let mut result: Vec<(String, Aggregator)> = Vec::with_capacity(spec.aggregators().len());
     for a in spec.aggregators() {
         let id_final = match a.id() {
             Some(id) => id.to_string(),
@@ -726,8 +733,10 @@ pub fn build_aggregators_from_spec(
                 candidate
             }
         };
-        let built = build_aggregator_from_spec(a.clone(), registry)?;
-        result.insert(id_final, built);
+        let built = build_aggregator_from_spec(a.clone(), registry).map_err(|e| {
+            Error::serialization(format!("{e} (in aggregator '{id_final}')"))
+        })?;
+        result.push((id_final, built));
     }
     Ok(result)
 }
@@ -809,7 +818,7 @@ mod aggregator_tests {
     }
 
     #[test]
-    fn collection_auto_ids_and_uniqueness() {
+    fn collection_preserves_order_with_auto_ids_and_uniqueness() {
         let r = registry_with_test_completion();
         let spec = AggregatorsSpec::new(1)
             .add(AggregatorSpec::with_id(
@@ -821,9 +830,12 @@ mod aggregator_tests {
             .add(AggregatorSpec::new("corr2", "test.count_at_least_3"));
         let built = build_aggregators_from_spec(spec, &r).expect("build succeeds");
         assert_eq!(built.len(), 3);
-        assert!(built.contains_key("explicit.a"));
-        assert!(built.contains_key("aggregator:auto.1"));
-        assert!(built.contains_key("aggregator:auto.2"));
+        // Declaration order preserved + auto-ids assigned for entries without explicit ids.
+        let ids: Vec<&str> = built.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec!["explicit.a", "aggregator:auto.1", "aggregator:auto.2"]
+        );
     }
 
     #[test]
@@ -848,8 +860,38 @@ mod aggregator_tests {
             ))
             .add(AggregatorSpec::new("corr", "test.count_at_least_3"));
         let built = build_aggregators_from_spec(spec, &r).expect("build succeeds");
-        assert!(built.contains_key("aggregator:auto.5"));
-        assert!(built.contains_key("aggregator:auto.6"));
+        let ids: Vec<&str> = built.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(ids, vec!["aggregator:auto.5", "aggregator:auto.6"]);
+    }
+
+    #[test]
+    fn per_entry_build_errors_name_the_offending_aggregator() {
+        // Two aggregators; the second uses an unknown completion name. The
+        // collection builder must wrap the per-entry error with the *id* of
+        // the failing aggregator so diagnostics aren't ambiguous when there
+        // are many in `allora.yaml`.
+        let r = registry_with_test_completion();
+        let spec = AggregatorsSpec::new(1)
+            .add(AggregatorSpec::with_id(
+                "first.ok",
+                "corr",
+                "test.count_at_least_3",
+            ))
+            .add(AggregatorSpec::with_id(
+                "second.broken",
+                "corr2",
+                "nope.does.not.exist",
+            ));
+        let err = build_aggregators_from_spec(spec, &r).expect_err("must error");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unknown completion 'nope.does.not.exist'"),
+            "underlying error must still be present, got: {msg}"
+        );
+        assert!(
+            msg.contains("in aggregator 'second.broken'"),
+            "error must name the failing aggregator id, got: {msg}"
+        );
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -893,8 +935,13 @@ aggregators:
         let built = build_aggregators_from_spec(aggs_spec.clone(), &registry)
             .expect("aggregators build ok");
         assert_eq!(built.len(), 2);
-        assert!(built.contains_key("finality_quorum"));
-        assert!(built.contains_key("aggregator:auto.1"));
+        // Declaration order: explicit-id first, auto-id second.
+        let ids: Vec<&str> = built.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(ids, vec!["finality_quorum", "aggregator:auto.1"]);
+        // And it converts cleanly to a HashMap for consumers that prefer one.
+        let by_id: std::collections::HashMap<String, _> = built.into_iter().collect();
+        assert!(by_id.contains_key("finality_quorum"));
+        assert!(by_id.contains_key("aggregator:auto.1"));
     }
 
     #[test]
