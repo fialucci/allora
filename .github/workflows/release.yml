@@ -46,7 +46,18 @@ jobs:
             local crate="$1"
             local version="$2"
 
-            cargo info "${crate}@${version}" >/dev/null 2>&1
+            # Probe crates.io directly. We deliberately do NOT use
+            # `cargo info` / `cargo search`: `cargo info "<crate>@<version>"`
+            # resolves against the current workspace when a local manifest
+            # declares that exact version, so it returns success for the
+            # version we're *about* to publish — falsely reporting "already
+            # exists" and silently skipping every cargo publish. See the
+            # v0.0.4 release run, which "succeeded" without publishing
+            # anything.
+            local url="https://crates.io/api/v1/crates/${crate}/${version}"
+            curl --silent --fail --output /dev/null \
+              --user-agent "fialucci-allora-release-check" \
+              "${url}"
           }
 
           wait_for_crate() {
