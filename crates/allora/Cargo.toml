@@ -1,6 +1,6 @@
 [package]
 name = "allora"
-version = "0.0.2"
+version = "0.0.3"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["Allora Contributors"]
@@ -17,8 +17,8 @@ name = "allora"
 path = "src/lib.rs"
 
 [dependencies]
-allora-core = { version = "0.0.2", path = "../core" }
-allora-runtime = { version = "0.0.2", path = "../runtime" }
-allora-http = { version = "0.0.2", path = "../http" }
-allora-macros = { version = "0.0.2", path = "../macros" }
+allora-core = { version = "0.0.3", path = "../core" }
+allora-runtime = { version = "0.0.3", path = "../runtime" }
+allora-http = { version = "0.0.3", path = "../http" }
+allora-macros = { version = "0.0.3", path = "../macros" }
 inventory = "0.3"
