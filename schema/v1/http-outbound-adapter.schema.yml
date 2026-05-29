@@ -67,6 +67,24 @@ properties:
           If true (default), adapter serializes exchange.out_msg when present,
           falling back to exchange.in_msg. If false, always uses exchange.in_msg.
         default: true
+      from:
+        type: string
+        minLength: 1
+        description: |
+          Channel-driven dispatch: when present, the runtime subscribes this
+          adapter to the named inbound channel and dispatches each arriving
+          exchange. When absent, the adapter is static-only — accessed via
+          `rt.http_outbound_adapters()` and invoked manually by app code.
+      to:
+        type: string
+        minLength: 1
+        description: |
+          Outbound channel for the post-dispatch exchange. Ignored when `from`
+          is absent. When `from` is set and `to` is omitted, dispatch is
+          fire-and-forget (response logged at debug, message dropped). When
+          both are set, the response body becomes `in_msg.payload` (Text)
+          and the response status lands in `dispatch-result.status-code` /
+          `dispatch-result.acknowledged` headers.
       # Future fields (reserved): headers, timeout-ms, retry-policy, auth-ref
 
 examples:
@@ -85,4 +103,13 @@ examples:
       port: 443
       base-path: /v1
       method: GET
+  - version: 1
+    http-outbound-adapter:
+      id: chain.submit
+      host: 127.0.0.1
+      port: 8080
+      base-path: /oracle/submissions
+      method: POST
+      from: signed_submissions
+      to: chain_acks
 

@@ -71,7 +71,7 @@ use crate::spec::{AggregatorSpec, AggregatorsSpec};
 use crate::spec::{HttpInboundAdapterSpec, HttpInboundAdaptersSpec};
 use crate::spec::{HttpOutboundAdapterSpec, HttpOutboundAdaptersSpec};
 use crate::{
-    dsl::runtime::FilterActivation,
+    dsl::runtime::{FilterActivation, HttpOutboundAdapterActivation},
     spec::{ChannelKindSpec, ChannelSpec, ChannelsSpec, FilterSpec, FiltersSpec},
     spec::{ServiceActivatorSpec, ServiceActivatorsSpec},
     Channel, ClosureProcessor, Error, Filter, Result,
@@ -549,7 +549,7 @@ pub fn build_http_outbound_adapter_from_spec(
 /// Returned adapters preserve the input order.
 pub fn build_http_outbound_adapters_from_spec(
     spec: HttpOutboundAdaptersSpec,
-) -> Result<Vec<HttpOutboundAdapter>> {
+) -> Result<Vec<HttpOutboundAdapterActivation>> {
     let mut result = Vec::with_capacity(spec.adapters().len());
     const AUTO_PREFIX: &str = "http-outbound-adapter:auto.";
     let mut used = HashSet::new();
@@ -597,7 +597,7 @@ pub fn build_http_outbound_adapters_from_spec(
             .host(a.host())
             .port(a.port())
             .base_path(a.base_path())
-            .id(id_final);
+            .id(id_final.clone());
         if let Some(p) = a.path() {
             builder = builder.path(p);
         }
@@ -608,7 +608,17 @@ pub fn build_http_outbound_adapters_from_spec(
             builder = builder.use_out_msg(false);
         }
         let built = builder.build()?;
-        result.push(built);
+        // Pair the built adapter with its channel routing metadata so the
+        // runtime can subscribe it. `from = None` ⇒ static-only (the
+        // legacy http-outbound example pattern); `from = Some(..)` ⇒
+        // channel-driven, optionally with `to:` for response forwarding.
+        let activation = HttpOutboundAdapterActivation::new(
+            built,
+            a.from().map(|s| s.to_string()),
+            a.to().map(|s| s.to_string()),
+            id_final,
+        );
+        result.push(activation);
     }
     Ok(result)
 }
