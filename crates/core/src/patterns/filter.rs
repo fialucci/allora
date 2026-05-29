@@ -89,9 +89,11 @@
 //! See also: [`Filter`], [`Filter::from_apl`], [`Exchange`], [`Error::Routing`].
 
 use crate::error::{Error, Result};
+use crate::message::Payload;
 use crate::Exchange;
 use once_cell::sync::{Lazy, OnceCell};
 use regex::Regex;
+use std::borrow::Cow;
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::sync::Arc;
 
@@ -336,21 +338,29 @@ fn build_atom(raw: &str) -> Box<dyn Fn(&Exchange) -> bool + Send + Sync> {
         let pointer: Arc<str> = Arc::from(jsonpath_to_pointer(raw_path));
         let expected: Arc<str> = Arc::from(cap.get(2).unwrap().as_str());
         return Box::new(move |exchange: &Exchange| {
-            let body = match exchange.in_msg.body_text() {
-                Some(b) if !b.trim().is_empty() => b,
+            // Two payload paths converge to the same lookup:
+            // - `Payload::Json` already holds a `serde_json::Value`,
+            //   borrowed directly — no parse on the hot path.
+            // - `Payload::Text` is parsed each call. Filters chained on
+            //   the same body re-parse it; on the POC's two-filter
+            //   pipeline that costs tens of microseconds per webhook,
+            //   negligible. A per-Exchange parse cache would amortize
+            //   if a hot path emerges.
+            // - `Payload::Bytes` / `Payload::Empty` → false.
+            let resolved: Cow<'_, serde_json::Value> = match &exchange.in_msg.payload {
+                Payload::Json(value) => Cow::Borrowed(value),
+                Payload::Text(s) => {
+                    if s.trim().is_empty() {
+                        return false;
+                    }
+                    match serde_json::from_str::<serde_json::Value>(s) {
+                        Ok(v) => Cow::Owned(v),
+                        Err(_) => return false,
+                    }
+                }
                 _ => return false,
             };
-            // Parse the body each call. Filters in a chain (e.g. one
-            // checking `$.a` then another checking `$.b`) re-parse the
-            // same body — a caching layer on the Exchange would amortize
-            // it, but the win on the POC's two-filter pipeline is
-            // negligible (~tens of microseconds per webhook). Reconsider
-            // if a hot path emerges.
-            let value: serde_json::Value = match serde_json::from_str(body) {
-                Ok(v) => v,
-                Err(_) => return false,
-            };
-            let at_path = match value.pointer(pointer.as_ref()) {
+            let at_path = match resolved.pointer(pointer.as_ref()) {
                 Some(v) => v,
                 None => return false,
             };
@@ -361,23 +371,25 @@ fn build_atom(raw: &str) -> Box<dyn Fn(&Exchange) -> bool + Send + Sync> {
     Box::new(move |exchange: &Exchange| exchange.in_msg.body_text() == Some(literal.as_ref()))
 }
 
-/// Convert a JSONPath-ish path (`$.foo.bar`, `$['foo']`, `$.array[0]`) to
-/// the subset of RFC 6901 JSON Pointer syntax `serde_json::Value::pointer`
-/// expects.
+/// Convert a JSONPath-ish path to the subset of RFC 6901 JSON Pointer
+/// syntax `serde_json::Value::pointer` expects.
 ///
 /// Supported input shapes:
-///   - `$.foo.bar`           → `/foo/bar`
-///   - `$.foo[0].bar`        → `/foo/0/bar`
-///   - `/foo/bar` (passthrough, raw JSON Pointer)
-///   - `foo.bar`             → `/foo/bar` (treated as JSONPath without `$.`)
+///   - `$.foo.bar`     → `/foo/bar`     (JSONPath dot navigation)
+///   - `$.foo[0].bar`  → `/foo/0/bar`   (numeric array index)
+///   - `foo.bar`       → `/foo/bar`     (dot navigation without `$.`)
+///   - `/foo/bar`      → `/foo/bar`     (raw RFC 6901, passthrough)
 ///
-/// Unsupported: filter expressions (`$..*`, `$.foo[?(@.bar)]`), wildcards.
-/// Filters are EIP-style boolean predicates; complex query operators belong
-/// in a Translator, not a Filter.
+/// Unsupported (left as future work):
+///   - Bracket-quoted property syntax (`$['foo']`, `$["foo bar"]`).
+///   - JSONPath query operators: filter expressions (`$.x[?(@.bar)]`),
+///     descendants (`$..foo`), wildcards (`$.*`).
 ///
-/// Returns the path verbatim (prefixed with `/`) on shapes we don't try to
-/// rewrite — `serde_json::Value::pointer` will reject any path it can't
-/// resolve, and the atom drops the message.
+/// Filters are EIP-style boolean predicates; complex query operators
+/// belong in a Translator, not a Filter. On unsupported shapes the
+/// rewritten string is passed to `serde_json::Value::pointer` as-is —
+/// the pointer call then returns `None` and the filter atom drops the
+/// message.
 fn jsonpath_to_pointer(p: &str) -> String {
     // Pre-formed JSON Pointer: passthrough.
     if p.starts_with('/') {
@@ -579,5 +591,57 @@ mod body_json_eq_tests {
         assert!(f.accepts(&ex_with_body(r#"{"action":"closed"}"#)));
         assert!(f.accepts(&ex_with_body(r#"{"action":"synchronize"}"#)));
         assert!(!f.accepts(&ex_with_body(r#"{"action":"opened"}"#)));
+    }
+
+    /// `Payload::Json` already holds a `serde_json::Value`; the atom must
+    /// read it directly rather than rejecting it as non-text. (The
+    /// earlier implementation only called `body_text()`, which returns
+    /// `None` for the JSON payload variant — caught in PR #25 review.)
+    #[test]
+    fn payload_json_variant_is_inspected_directly() {
+        use crate::message::{Message, Payload};
+
+        let mut msg = Message::default();
+        msg.payload = Payload::Json(serde_json::json!({
+            "action": "closed",
+            "pull_request": { "merged": true }
+        }));
+        let ex = Exchange::new(msg);
+
+        let f_string = build(r#"body.json("$.action") == "closed""#);
+        assert!(f_string.accepts(&ex));
+
+        let f_bool = build(r#"body.json("$.pull_request.merged") == "true""#);
+        assert!(f_bool.accepts(&ex));
+
+        let f_no_match = build(r#"body.json("$.action") == "opened""#);
+        assert!(!f_no_match.accepts(&ex));
+    }
+
+    #[test]
+    fn payload_bytes_does_not_match() {
+        use crate::message::{Message, Payload};
+
+        let mut msg = Message::default();
+        msg.payload = Payload::Bytes(br#"{"action":"closed"}"#.to_vec());
+        let ex = Exchange::new(msg);
+
+        // Bytes payload is a deliberate non-match. A future enhancement
+        // could attempt UTF-8 → JSON parse; for now `Bytes` is opaque to
+        // the Filter DSL, matching `body.contains`'s semantics.
+        let f = build(r#"body.json("$.action") == "closed""#);
+        assert!(!f.accepts(&ex));
+    }
+
+    #[test]
+    fn payload_empty_does_not_match() {
+        use crate::message::{Message, Payload};
+
+        let mut msg = Message::default();
+        msg.payload = Payload::Empty;
+        let ex = Exchange::new(msg);
+
+        let f = build(r#"body.json("$.action") == "closed""#);
+        assert!(!f.accepts(&ex));
     }
 }
