@@ -44,12 +44,19 @@ properties:
         minLength: 1
         description: |
           Boolean expression over message context.
-          Supported functions (initial draft):
-            header("Key") -> String | None
-            exists(header("Key")) -> bool
-            body.contains("text") -> bool
+          Supported atoms:
+            header("Key") == "Value"          - exact header match
+            exists(header("Key"))             - header presence
+            body.contains("text")             - substring search in body
+            body.json("$.foo.bar") == "value" - JSON body field equals literal
+                                                (JSONPath dot navigation;
+                                                 bool/number coerced to string;
+                                                 also accepts `/foo/bar`
+                                                 RFC 6901 pointer syntax)
           Operators: &&, ||, ==
-          Example: body.contains("KEEP") && exists(header("Trace-Id"))
+          Examples:
+            body.contains("KEEP") && exists(header("Trace-Id"))
+            body.json("$.action") == "closed" && body.json("$.pull_request.merged") == "true"
 
 examples:
   - version: 1
@@ -62,3 +69,9 @@ examples:
     filter:
       from: inbound.audit
       when: exists(header("Audit-Flag")) && header("Audit-Flag") == "true"
+  - version: 1
+    filter:
+      id: filt.pr_merged
+      from: parsed_github_events
+      to: pr_merged_events
+      when: body.json("$.action") == "closed" && body.json("$.pull_request.merged") == "true"
