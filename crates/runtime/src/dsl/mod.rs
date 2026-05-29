@@ -117,8 +117,8 @@ use crate::{
 };
 use component_builders::{
     build_channel_from_spec, build_channels_from_spec, build_filter_from_spec,
-    build_filters_from_spec, build_http_inbound_adapters_from_spec, build_service_from_spec,
-    build_http_outbound_adapters_from_spec,
+    build_filters_from_spec, build_http_inbound_adapters_from_spec,
+    build_http_outbound_adapters_from_spec, build_service_from_spec,
 };
 use std::path::Path;
 
@@ -224,7 +224,11 @@ pub fn build_service(path: impl AsRef<Path>) -> Result<component_builders::Servi
 }
 
 /// Internal helper: build full runtime from raw + format.
-fn build_runtime_from_str(raw: &str, format: DslFormat) -> Result<AlloraRuntime> {
+///
+/// `pub(crate)` so unit tests in `crate::runtime` can build an
+/// `AlloraRuntime` from an inline YAML string without writing a temp
+/// file.
+pub(crate) fn build_runtime_from_str(raw: &str, format: DslFormat) -> Result<AlloraRuntime> {
     match format {
         DslFormat::Yaml => {
             let top = AlloraSpecYamlParser::parse_str(raw)?;
