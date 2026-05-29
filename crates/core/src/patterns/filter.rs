@@ -25,13 +25,19 @@
 //! * `header("Key") == "Value"` – exact header match (case sensitive key/value).
 //! * `exists(header("Key"))` – header presence.
 //! * `body.contains("Text")` – substring search in inbound body (text payload only).
+//! * `body.json("$.foo.bar") == "value"` – parse the body as JSON, navigate
+//!   to the field at `$.foo.bar`, compare its stringified primitive
+//!   (`true`/`false` for bool, lexical form for number, contents for string,
+//!   `"null"` for null) against the quoted literal. Accepts JSON Pointer
+//!   (`/foo/bar`) too; both are normalized to RFC 6901 internally. Array
+//!   indices via `$.items[0].name`.
 //! * Fallback literal – any other token is treated as an exact body match.
 //!
 //! Operators & precedence:
 //! * `&&` higher than `||`.
 //! * Expression is segmented by `||`; each segment reduces left‑associative `&&` atoms; final result is OR of segment values.
 //!
-//! Unsupported (yet): parentheses, negation `!`, inequality `!=`, numeric comparisons, regex, JSON path navigation.
+//! Unsupported (yet): parentheses, negation `!`, inequality `!=`, numeric comparisons, regex, JSONPath query operators (filters, wildcards).
 //!
 //! Error conditions (APL):
 //! * Empty expression → `Error::Serialization("empty predicate")`
@@ -76,15 +82,18 @@
 //! * Test precedence: `A && B || C` vs `A || B && C`.
 //!
 //! # Roadmap
-//! Parentheses, negation, JSON body paths, numeric & regex matching, stricter atom validation.
-//! These will be versioned additions keeping backward compatibility for existing APL specs.
+//! Parentheses, negation, numeric & regex matching, stricter atom validation,
+//! richer JSONPath query operators. These will be versioned additions keeping
+//! backward compatibility for existing APL specs.
 //!
 //! See also: [`Filter`], [`Filter::from_apl`], [`Exchange`], [`Error::Routing`].
 
 use crate::error::{Error, Result};
+use crate::message::Payload;
 use crate::Exchange;
 use once_cell::sync::{Lazy, OnceCell};
 use regex::Regex;
+use std::borrow::Cow;
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::sync::Arc;
 
@@ -108,6 +117,21 @@ static EXISTS_HEADER_RE: Lazy<Regex> = Lazy::new(|| {
 });
 static BODY_CONTAINS_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"^body\.contains\("([^"]+)"\)$"#).expect("valid body.contains regex")
+});
+// `body.json("$.foo.bar") == "value"` — parses the message body as JSON,
+// navigates the JSONPath-style path to a primitive value, compares its
+// string representation to the quoted literal.
+//
+// Accepts JSON Pointer syntax too (`/foo/bar`); the path normalizer
+// converts both to RFC 6901 internally before calling
+// `serde_json::Value::pointer`.
+//
+// Use cases:
+//   when: body.json("$.action") == "closed"          (string field)
+//   when: body.json("$.pull_request.merged") == "true"  (bool, stringified)
+//   when: body.json("$.amount") == "100"             (number, stringified)
+static BODY_JSON_EQ_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"^body\.json\("([^"]+)"\)\s*==\s*"([^"]*)"$"#).expect("valid body.json eq regex")
 });
 
 fn plan_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, Arc<CompiledPlan>>> {
@@ -309,8 +333,131 @@ fn build_atom(raw: &str) -> Box<dyn Fn(&Exchange) -> bool + Send + Sync> {
                 .unwrap_or(false)
         });
     }
+    if let Some(cap) = BODY_JSON_EQ_RE.captures(s) {
+        let raw_path: &str = cap.get(1).unwrap().as_str();
+        let pointer: Arc<str> = Arc::from(jsonpath_to_pointer(raw_path));
+        let expected: Arc<str> = Arc::from(cap.get(2).unwrap().as_str());
+        return Box::new(move |exchange: &Exchange| {
+            // Two payload paths converge to the same lookup:
+            // - `Payload::Json` already holds a `serde_json::Value`,
+            //   borrowed directly — no parse on the hot path.
+            // - `Payload::Text` is parsed each call. Filters chained on
+            //   the same body re-parse it; on the POC's two-filter
+            //   pipeline that costs tens of microseconds per webhook,
+            //   negligible. A per-Exchange parse cache would amortize
+            //   if a hot path emerges.
+            // - `Payload::Bytes` / `Payload::Empty` → false.
+            let resolved: Cow<'_, serde_json::Value> = match &exchange.in_msg.payload {
+                Payload::Json(value) => Cow::Borrowed(value),
+                Payload::Text(s) => {
+                    if s.trim().is_empty() {
+                        return false;
+                    }
+                    match serde_json::from_str::<serde_json::Value>(s) {
+                        Ok(v) => Cow::Owned(v),
+                        Err(_) => return false,
+                    }
+                }
+                _ => return false,
+            };
+            let at_path = match resolved.pointer(pointer.as_ref()) {
+                Some(v) => v,
+                None => return false,
+            };
+            json_primitive_to_string(at_path) == expected.as_ref()
+        });
+    }
     let literal: Arc<str> = Arc::from(s);
     Box::new(move |exchange: &Exchange| exchange.in_msg.body_text() == Some(literal.as_ref()))
+}
+
+/// Convert a JSONPath-ish path to the subset of RFC 6901 JSON Pointer
+/// syntax `serde_json::Value::pointer` expects.
+///
+/// Supported input shapes:
+///   - `$.foo.bar`     → `/foo/bar`     (JSONPath dot navigation)
+///   - `$.foo[0].bar`  → `/foo/0/bar`   (numeric array index)
+///   - `foo.bar`       → `/foo/bar`     (dot navigation without `$.`)
+///   - `/foo/bar`      → `/foo/bar`     (raw RFC 6901, passthrough)
+///
+/// Unsupported (left as future work):
+///   - Bracket-quoted property syntax (`$['foo']`, `$["foo bar"]`).
+///   - JSONPath query operators: filter expressions (`$.x[?(@.bar)]`),
+///     descendants (`$..foo`), wildcards (`$.*`).
+///
+/// Filters are EIP-style boolean predicates; complex query operators
+/// belong in a Translator, not a Filter. On unsupported shapes the
+/// rewritten string is passed to `serde_json::Value::pointer` as-is —
+/// the pointer call then returns `None` and the filter atom drops the
+/// message.
+fn jsonpath_to_pointer(p: &str) -> String {
+    // Pre-formed JSON Pointer: passthrough.
+    if p.starts_with('/') {
+        return p.to_string();
+    }
+    let body = p
+        .strip_prefix("$.")
+        .or_else(|| p.strip_prefix('$'))
+        .unwrap_or(p);
+    // Convert `foo.bar[0].baz` → `/foo/bar/0/baz`.
+    let mut out = String::with_capacity(body.len() + 8);
+    for raw_seg in body.split('.') {
+        // `array[0]` → `array`, `0`.
+        let mut remaining = raw_seg;
+        while let Some(open) = remaining.find('[') {
+            let (key, rest) = remaining.split_at(open);
+            if !key.is_empty() {
+                out.push('/');
+                out.push_str(key);
+            }
+            // rest = `[N]...`; find the closing ].
+            let rest = &rest[1..]; // strip `[`
+            if let Some(close) = rest.find(']') {
+                let idx = &rest[..close];
+                out.push('/');
+                out.push_str(idx);
+                remaining = &rest[close + 1..];
+            } else {
+                // Malformed — emit the rest verbatim; pointer() will reject.
+                out.push('/');
+                out.push_str(rest);
+                remaining = "";
+            }
+        }
+        if !remaining.is_empty() {
+            out.push('/');
+            out.push_str(remaining);
+        }
+    }
+    if out.is_empty() {
+        out.push('/');
+    }
+    out
+}
+
+/// Convert a `serde_json::Value` primitive to a comparable string. The
+/// Filter DSL's `==` compares against a quoted literal in the YAML; both
+/// sides need to be strings.
+///
+/// | JSON value | String form |
+/// |---|---|
+/// | `null`           | `"null"` |
+/// | `true` / `false` | `"true"` / `"false"` |
+/// | number           | its lexical form (`"100"`, `"1.5"`) |
+/// | string           | the inner contents (no surrounding quotes) |
+/// | array / object   | the JSON-encoded form |
+///
+/// Strings strip their enclosing JSON quotes so a YAML predicate like
+/// `body.json("$.action") == "closed"` matches a JSON value
+/// `"action":"closed"` cleanly.
+fn json_primitive_to_string(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::Null => "null".to_string(),
+        serde_json::Value::Bool(b) => b.to_string(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
 }
 
 #[async_trait::async_trait]
@@ -325,5 +472,176 @@ impl crate::processor::Processor for Filter {
                     .unwrap_or_else(|| "filtered out".into()),
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod body_json_eq_tests {
+    //! Unit coverage for the `body.json("$.path") == "value"` Filter DSL
+    //! atom. Verifies the JSONPath → RFC 6901 conversion, string-form
+    //! comparison for primitive values, and graceful failure on bodies
+    //! that aren't parseable JSON or don't have the requested path.
+
+    use super::*;
+    use crate::message::Message;
+
+    fn ex_with_body(body: &str) -> Exchange {
+        Exchange::new(Message::from_text(body))
+    }
+
+    fn build(when: &str) -> Filter {
+        Filter::from_apl(when).expect("valid APL")
+    }
+
+    #[test]
+    fn jsonpath_to_pointer_strips_dollar_and_dots() {
+        assert_eq!(jsonpath_to_pointer("$.action"), "/action");
+        assert_eq!(jsonpath_to_pointer("$.foo.bar"), "/foo/bar");
+        assert_eq!(
+            jsonpath_to_pointer("$.pull_request.merged"),
+            "/pull_request/merged"
+        );
+    }
+
+    #[test]
+    fn jsonpath_to_pointer_handles_array_index() {
+        assert_eq!(jsonpath_to_pointer("$.items[0]"), "/items/0");
+        assert_eq!(jsonpath_to_pointer("$.items[0].name"), "/items/0/name");
+        assert_eq!(jsonpath_to_pointer("$.x[1][2]"), "/x/1/2");
+    }
+
+    #[test]
+    fn jsonpath_to_pointer_passes_through_rfc6901() {
+        assert_eq!(jsonpath_to_pointer("/foo/bar"), "/foo/bar");
+        assert_eq!(jsonpath_to_pointer("/"), "/");
+    }
+
+    #[test]
+    fn string_field_match() {
+        let f = build(r#"body.json("$.action") == "closed""#);
+        assert!(f.accepts(&ex_with_body(r#"{"action":"closed"}"#)));
+        assert!(!f.accepts(&ex_with_body(r#"{"action":"opened"}"#)));
+    }
+
+    #[test]
+    fn nested_string_field_match() {
+        let f = build(r#"body.json("$.pull_request.user.login") == "alice""#);
+        let body = r#"{"pull_request":{"user":{"login":"alice"}}}"#;
+        assert!(f.accepts(&ex_with_body(body)));
+    }
+
+    #[test]
+    fn bool_field_stringified() {
+        let f = build(r#"body.json("$.pull_request.merged") == "true""#);
+        assert!(f.accepts(&ex_with_body(r#"{"pull_request":{"merged":true}}"#)));
+        assert!(!f.accepts(&ex_with_body(r#"{"pull_request":{"merged":false}}"#)));
+    }
+
+    #[test]
+    fn number_field_stringified() {
+        let f = build(r#"body.json("$.amount") == "100""#);
+        assert!(f.accepts(&ex_with_body(r#"{"amount":100}"#)));
+        assert!(!f.accepts(&ex_with_body(r#"{"amount":101}"#)));
+    }
+
+    #[test]
+    fn null_field_matches_null_literal() {
+        let f = build(r#"body.json("$.opt") == "null""#);
+        assert!(f.accepts(&ex_with_body(r#"{"opt":null}"#)));
+    }
+
+    #[test]
+    fn missing_path_does_not_match() {
+        let f = build(r#"body.json("$.missing") == "anything""#);
+        assert!(!f.accepts(&ex_with_body(r#"{"present":1}"#)));
+    }
+
+    #[test]
+    fn non_json_body_does_not_match() {
+        let f = build(r#"body.json("$.action") == "closed""#);
+        assert!(!f.accepts(&ex_with_body("not json at all")));
+    }
+
+    #[test]
+    fn empty_body_does_not_match() {
+        let f = build(r#"body.json("$.action") == "closed""#);
+        assert!(!f.accepts(&ex_with_body("")));
+    }
+
+    #[test]
+    fn combinable_with_and() {
+        let f = build(
+            r#"body.json("$.action") == "closed" && body.json("$.pull_request.merged") == "true""#,
+        );
+        assert!(f.accepts(&ex_with_body(
+            r#"{"action":"closed","pull_request":{"merged":true}}"#
+        )));
+        assert!(!f.accepts(&ex_with_body(
+            r#"{"action":"closed","pull_request":{"merged":false}}"#
+        )));
+        assert!(!f.accepts(&ex_with_body(
+            r#"{"action":"opened","pull_request":{"merged":true}}"#
+        )));
+    }
+
+    #[test]
+    fn combinable_with_or() {
+        let f =
+            build(r#"body.json("$.action") == "closed" || body.json("$.action") == "synchronize""#);
+        assert!(f.accepts(&ex_with_body(r#"{"action":"closed"}"#)));
+        assert!(f.accepts(&ex_with_body(r#"{"action":"synchronize"}"#)));
+        assert!(!f.accepts(&ex_with_body(r#"{"action":"opened"}"#)));
+    }
+
+    /// `Payload::Json` already holds a `serde_json::Value`; the atom must
+    /// read it directly rather than rejecting it as non-text. (The
+    /// earlier implementation only called `body_text()`, which returns
+    /// `None` for the JSON payload variant — caught in PR #25 review.)
+    #[test]
+    fn payload_json_variant_is_inspected_directly() {
+        use crate::message::{Message, Payload};
+
+        let mut msg = Message::default();
+        msg.payload = Payload::Json(serde_json::json!({
+            "action": "closed",
+            "pull_request": { "merged": true }
+        }));
+        let ex = Exchange::new(msg);
+
+        let f_string = build(r#"body.json("$.action") == "closed""#);
+        assert!(f_string.accepts(&ex));
+
+        let f_bool = build(r#"body.json("$.pull_request.merged") == "true""#);
+        assert!(f_bool.accepts(&ex));
+
+        let f_no_match = build(r#"body.json("$.action") == "opened""#);
+        assert!(!f_no_match.accepts(&ex));
+    }
+
+    #[test]
+    fn payload_bytes_does_not_match() {
+        use crate::message::{Message, Payload};
+
+        let mut msg = Message::default();
+        msg.payload = Payload::Bytes(br#"{"action":"closed"}"#.to_vec());
+        let ex = Exchange::new(msg);
+
+        // Bytes payload is a deliberate non-match. A future enhancement
+        // could attempt UTF-8 → JSON parse; for now `Bytes` is opaque to
+        // the Filter DSL, matching `body.contains`'s semantics.
+        let f = build(r#"body.json("$.action") == "closed""#);
+        assert!(!f.accepts(&ex));
+    }
+
+    #[test]
+    fn payload_empty_does_not_match() {
+        use crate::message::{Message, Payload};
+
+        let mut msg = Message::default();
+        msg.payload = Payload::Empty;
+        let ex = Exchange::new(msg);
+
+        let f = build(r#"body.json("$.action") == "closed""#);
+        assert!(!f.accepts(&ex));
     }
 }
