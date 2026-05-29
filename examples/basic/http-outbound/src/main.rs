@@ -55,6 +55,7 @@ async fn main() -> Result<()> {
         .http_outbound_adapters()
         .first()
         .expect("adapter")
+        .adapter()
         .dispatch(&Exchange::new(Message::from_text("ping")))
         .await?;
     let _ = rx.await;

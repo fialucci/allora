@@ -67,7 +67,7 @@ pub struct AlloraRuntime {
     services: Vec<ServiceProcessor>,
     service_activator_processors: Vec<ServiceActivatorProcessor>,
     http_inbound_adapters: Vec<HttpInboundAdapter>,
-    http_outbound_adapters: Vec<HttpOutboundAdapter>,
+    http_outbound_adapters: Vec<HttpOutboundAdapterActivation>,
 }
 
 /// Pairs a [`Filter`] predicate with the channel routing metadata from
@@ -149,6 +149,86 @@ impl FilterActivation {
     }
 }
 
+/// Pairs an [`HttpOutboundAdapter`] with the channel routing metadata
+/// from the [`HttpOutboundAdapterSpec`] it was built from.
+///
+/// Mirrors [`FilterActivation`] for the http-outbound side. When the
+/// spec had a `from:` field, the runtime subscribes a closure on that
+/// inbound channel that:
+///
+/// 1. Calls `adapter.dispatch(&exchange)`.
+/// 2. If the spec also had `to:`, transforms the exchange (response
+///    body → `in_msg.payload`; status code + acknowledged → header
+///    metadata) and forwards it to the outbound channel.
+/// 3. If `to:` is `None`, the dispatch is fire-and-forget — result
+///    logged at `debug!`, message dropped.
+///
+/// When `from:` is `None` the activation is **static-only** — the
+/// adapter lives on the runtime for application code that calls
+/// `.dispatch()` directly (the legacy http-outbound pattern). The
+/// runtime does not auto-wire it.
+pub struct HttpOutboundAdapterActivation {
+    adapter: std::sync::Arc<HttpOutboundAdapter>,
+    from: Option<String>,
+    to: Option<String>,
+    id: String,
+}
+
+impl std::fmt::Debug for HttpOutboundAdapterActivation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HttpOutboundAdapterActivation")
+            .field("id", &self.id)
+            .field("from", &self.from)
+            .field("to", &self.to)
+            .finish()
+    }
+}
+
+impl HttpOutboundAdapterActivation {
+    /// Build a new activation from a built `HttpOutboundAdapter` and its
+    /// routing metadata.
+    pub fn new(
+        adapter: HttpOutboundAdapter,
+        from: Option<String>,
+        to: Option<String>,
+        id: impl Into<String>,
+    ) -> Self {
+        Self {
+            adapter: std::sync::Arc::new(adapter),
+            from,
+            to,
+            id: id.into(),
+        }
+    }
+
+    /// The wrapped HTTP outbound adapter (shared via `Arc` so the
+    /// runtime can hand a clone to its subscription closure).
+    pub fn adapter(&self) -> &std::sync::Arc<HttpOutboundAdapter> {
+        &self.adapter
+    }
+
+    /// Inbound channel ID the runtime subscribes the adapter to.
+    /// `None` means the activation is static-only — accessible via
+    /// `AlloraRuntime::http_outbound_adapters()` but not auto-wired.
+    pub fn from(&self) -> Option<&str> {
+        self.from.as_deref()
+    }
+
+    /// Outbound channel ID for the post-dispatch exchange. Ignored
+    /// when `from` is `None`. When `from` is set and `to` is `None`,
+    /// dispatch is fire-and-forget.
+    pub fn to(&self) -> Option<&str> {
+        self.to.as_deref()
+    }
+
+    /// Stable identifier (matches the `HttpOutboundAdapterSpec`'s
+    /// `id`, or `http-outbound:<host>:<port>` from the builder default
+    /// when the spec omitted it).
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+}
+
 impl AlloraRuntime {
     /// Create a new runtime instance from a vector of channels.
     ///
@@ -191,7 +271,10 @@ impl AlloraRuntime {
         self.http_inbound_adapters = adapters;
         self
     }
-    pub fn with_http_outbound_adapters(mut self, adapters: Vec<HttpOutboundAdapter>) -> Self {
+    pub fn with_http_outbound_adapters(
+        mut self,
+        adapters: Vec<HttpOutboundAdapterActivation>,
+    ) -> Self {
         self.http_outbound_adapters = adapters;
         self
     }
@@ -314,7 +397,7 @@ impl AlloraRuntime {
     pub fn http_inbound_adapter_count(&self) -> usize {
         self.http_inbound_adapters.len()
     }
-    pub fn http_outbound_adapters(&self) -> &[HttpOutboundAdapter] {
+    pub fn http_outbound_adapters(&self) -> &[HttpOutboundAdapterActivation] {
         &self.http_outbound_adapters
     }
     pub fn http_outbound_adapter_count(&self) -> usize {

@@ -91,6 +91,7 @@ use crate::{
     error::{Error, Result},
     service,
 };
+use allora_core::adapter::OutboundAdapter;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{debug, info, trace};
@@ -189,6 +190,7 @@ impl Runtime {
         let rt = build(&path)?;
         wire_services(&rt)?;
         wire_filters(&rt)?;
+        wire_http_outbound_adapters(&rt)?;
         debug!(
             channels = rt.channel_count(),
             filters = rt.filter_count(),
@@ -436,6 +438,172 @@ pub fn wire_filters(rt: &AlloraRuntime) -> Result<()> {
     Ok(())
 }
 
+/// Subscribe each [`HttpOutboundAdapterActivation`] with a `from:`
+/// channel name to that inbound channel; dispatch each arriving exchange
+/// through the adapter's `.dispatch(&exchange)` method.
+///
+/// Mirrors [`wire_filters`] for the http-outbound side. Activations with
+/// `from = None` are static-only: the adapter sits on the runtime for
+/// application code to invoke directly (see the http-outbound example),
+/// but the runtime does not auto-wire it.
+///
+/// ## Response shaping
+///
+/// On a successful dispatch, the post-dispatch exchange is forwarded to
+/// `to:` (when set) with:
+///
+/// - `in_msg.payload` ← the HTTP response body (as `Payload::Text`).
+/// - header `dispatch-result.status-code` ← the numeric HTTP status.
+/// - header `dispatch-result.acknowledged` ← `"true"` if the status was
+///   2xx, else `"false"`.
+///
+/// When `to:` is `None`, the dispatch is fire-and-forget: the result is
+/// logged at `debug!` and the message is dropped. (This matches the
+/// "I just need a webhook delivered" pattern that doesn't care about
+/// the response.)
+///
+/// On a failed dispatch (network error, TLS handshake failure, etc.),
+/// nothing is forwarded; the error is logged at `error!`.
+pub fn wire_http_outbound_adapters(rt: &AlloraRuntime) -> Result<()> {
+    debug!(
+        http_outbound.activations = rt.http_outbound_adapter_count(),
+        "http outbound wiring start"
+    );
+    let mut wirings: Vec<(
+        Arc<dyn Channel>,
+        Option<Arc<dyn Channel>>,
+        Arc<allora_http::HttpOutboundAdapter>,
+        String,
+    )> = Vec::new();
+    for activation in rt.http_outbound_adapters() {
+        let Some(from) = activation.from() else {
+            trace!(
+                http_outbound.id = activation.id(),
+                "adapter has no `from:` — static-only, not auto-wired"
+            );
+            continue;
+        };
+        trace!(
+            http_outbound.id = activation.id(),
+            from = from,
+            to = activation.to(),
+            "evaluating http outbound activation"
+        );
+        let inbound_arc_opt = rt.channels_slice().iter().find(|c| c.id() == from);
+        if inbound_arc_opt.is_none() {
+            debug!(
+                http_outbound.id = activation.id(),
+                from = from,
+                "inbound channel not found – wiring skipped"
+            );
+            continue;
+        }
+        let outbound_arc_opt = activation
+            .to()
+            .and_then(|to| rt.channels_slice().iter().find(|c| c.id() == to).cloned());
+        debug!(
+            http_outbound.id = activation.id(),
+            inbound = from,
+            outbound = activation.to(),
+            "channels resolved – scheduling http outbound wiring"
+        );
+        wirings.push((
+            inbound_arc_opt.unwrap().clone(),
+            outbound_arc_opt,
+            activation.adapter().clone(),
+            activation.id().to_string(),
+        ));
+    }
+    if wirings.is_empty() {
+        info!("no http outbound adapters wired");
+    } else {
+        info!(
+            wired.count = wirings.len(),
+            "http outbound wiring collected"
+        );
+    }
+    for (in_arc, out_arc_opt, adapter_arc, id) in wirings.into_iter() {
+        if let Some(inbound_direct) = in_arc.as_any().downcast_ref::<crate::DirectChannel>() {
+            let inbound_id = inbound_direct.id().to_string();
+            let id_closure = id.clone();
+            let sub_count = inbound_direct.subscribe(move |exchange| {
+                let outbound_clone = out_arc_opt.clone();
+                let adapter_clone = adapter_arc.clone();
+                let id_val = id_closure.clone();
+                tokio::spawn(async move {
+                    match adapter_clone.dispatch(&exchange).await {
+                        Ok(result) => {
+                            let Some(outbound) = outbound_clone else {
+                                // Fire-and-forget: no `to:` channel; log
+                                // the dispatch result and stop.
+                                tracing::debug!(
+                                    target = "allora::http_outbound",
+                                    http_outbound.id = %id_val,
+                                    status_code = ?result.status_code,
+                                    acknowledged = result.acknowledged,
+                                    "dispatched (fire-and-forget)"
+                                );
+                                return;
+                            };
+                            // Shape the post-dispatch exchange: response
+                            // body becomes the new payload (downstream
+                            // services read body_text() as usual); status
+                            // metadata lands in dispatch-result.* headers.
+                            let mut ex_mut = exchange;
+                            if let Some(body) = result.body {
+                                ex_mut.in_msg.payload = allora_core::Payload::Text(body);
+                            }
+                            if let Some(code) = result.status_code {
+                                ex_mut
+                                    .in_msg
+                                    .set_header("dispatch-result.status-code", &code.to_string());
+                            }
+                            ex_mut.in_msg.set_header(
+                                "dispatch-result.acknowledged",
+                                if result.acknowledged { "true" } else { "false" },
+                            );
+                            if let Err(err) = outbound.send(ex_mut).await {
+                                tracing::error!(
+                                    target = "allora::http_outbound",
+                                    http_outbound.id = %id_val,
+                                    error = %err,
+                                    "outbound channel send failed"
+                                );
+                            }
+                        }
+                        Err(err) => {
+                            tracing::error!(
+                                target = "allora::http_outbound",
+                                http_outbound.id = %id_val,
+                                error = %err,
+                                "http outbound dispatch failed"
+                            );
+                        }
+                    }
+                });
+                Ok(())
+            });
+            debug!(
+                http_outbound.id = id,
+                inbound = inbound_id,
+                subscribers = sub_count,
+                "http outbound wired"
+            );
+        } else {
+            debug!(
+                http_outbound.id = id,
+                inbound_id = in_arc.id(),
+                "inbound channel not direct – skipping http outbound wiring"
+            );
+        }
+    }
+    debug!(
+        http_outbound.activations = rt.http_outbound_adapter_count(),
+        "http outbound runtime wiring complete"
+    );
+    Ok(())
+}
+
 fn resolve_default_config() -> PathBuf {
     use std::env;
 
@@ -610,6 +778,225 @@ channels:
         let rt = build_runtime_from_str(yaml, crate::dsl::DslFormat::Yaml)?;
         assert_eq!(rt.filter_count(), 0);
         wire_filters(&rt)?; // no-op; should not error
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod wire_http_outbound_tests {
+    //! Channel-driven dispatch tests for `wire_http_outbound_adapters`.
+    //!
+    //! Each test spawns a tiny hyper server, builds a runtime whose
+    //! `http-outbound-adapter` block has a `from:` / (optionally) `to:`
+    //! pair, sends a message on the inbound channel, and asserts:
+    //! - the test server received the bytes from the message;
+    //! - the post-dispatch exchange landed on `to:` (or didn't, for
+    //!   fire-and-forget) with the documented header + payload shape.
+
+    use super::wire_http_outbound_adapters;
+    use crate::dsl::build_runtime_from_str;
+    use crate::dsl::runtime::AlloraRuntime;
+    use crate::DirectChannel;
+    use allora_core::{Exchange, Message};
+    use hyper::service::{make_service_fn, service_fn};
+    use hyper::{Body, Request, Response, Server};
+    use std::net::SocketAddr;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    /// Spawn a hyper server on `addr` that records every request body
+    /// it receives and replies with the given response body + status.
+    /// Returns the shared body sink.
+    async fn spawn_capture_server(
+        addr: SocketAddr,
+        reply_body: &'static str,
+        reply_status: u16,
+    ) -> Arc<Mutex<Vec<Vec<u8>>>> {
+        let bodies = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
+        let bodies_cl = bodies.clone();
+        let make = make_service_fn(move |_| {
+            let bodies = bodies_cl.clone();
+            async move {
+                Ok::<_, hyper::Error>(service_fn(move |req: Request<Body>| {
+                    let bodies = bodies.clone();
+                    async move {
+                        let bytes = hyper::body::to_bytes(req.into_body()).await.unwrap();
+                        bodies.lock().unwrap().push(bytes.to_vec());
+                        Ok::<_, hyper::Error>(
+                            Response::builder()
+                                .status(reply_status)
+                                .body(Body::from(reply_body))
+                                .unwrap(),
+                        )
+                    }
+                }))
+            }
+        });
+        let server = Server::bind(&addr).serve(make);
+        tokio::spawn(server);
+        tokio::time::sleep(Duration::from_millis(50)).await; // let bind settle
+        bodies
+    }
+
+    fn collect_into(
+        rt: &AlloraRuntime,
+        channel_id: &str,
+    ) -> Arc<Mutex<Vec<(String, Option<String>, Option<String>)>>> {
+        let recorded = Arc::new(Mutex::new(Vec::new()));
+        let arc = rt
+            .channels_slice()
+            .iter()
+            .find(|c| c.id() == channel_id)
+            .cloned()
+            .expect("channel registered");
+        let direct = arc
+            .as_any()
+            .downcast_ref::<DirectChannel>()
+            .expect("channel is direct");
+        let cl = recorded.clone();
+        direct.subscribe(move |ex| {
+            let body = ex.in_msg.body_text().unwrap_or("").to_string();
+            let status = ex
+                .in_msg
+                .header("dispatch-result.status-code")
+                .map(|s| s.to_string());
+            let ack = ex
+                .in_msg
+                .header("dispatch-result.acknowledged")
+                .map(|s| s.to_string());
+            cl.lock().unwrap().push((body, status, ack));
+            Ok(())
+        });
+        recorded
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn dispatches_message_and_forwards_response_to_outbound_channel(
+    ) -> allora_core::Result<()> {
+        let addr: SocketAddr = "127.0.0.1:31200".parse().unwrap();
+        let server_bodies = spawn_capture_server(addr, "ok-from-server", 202).await;
+
+        let yaml = r#"
+version: 1
+channels:
+  - kind: direct
+    id: outbound_requests
+  - kind: direct
+    id: dispatch_results
+http-outbound-adapters:
+  - id: test-out
+    host: 127.0.0.1
+    port: 31200
+    base-path: /
+    method: POST
+    from: outbound_requests
+    to: dispatch_results
+"#;
+        let rt = build_runtime_from_str(yaml, crate::dsl::DslFormat::Yaml)?;
+        wire_http_outbound_adapters(&rt)?;
+
+        let results = collect_into(&rt, "dispatch_results");
+        let inbound = rt
+            .channels_slice()
+            .iter()
+            .find(|c| c.id() == "outbound_requests")
+            .cloned()
+            .expect("inbound registered");
+
+        inbound
+            .send(Exchange::new(Message::from_text("hello-server")))
+            .await?;
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        let got_bodies = server_bodies.lock().unwrap().clone();
+        assert_eq!(
+            got_bodies,
+            vec![b"hello-server".to_vec()],
+            "server should have recorded the dispatched body once",
+        );
+
+        let got_results = results.lock().unwrap().clone();
+        assert_eq!(got_results.len(), 1, "one post-dispatch exchange expected");
+        let (body, status, ack) = &got_results[0];
+        assert_eq!(body, "ok-from-server");
+        assert_eq!(status.as_deref(), Some("202"));
+        assert_eq!(ack.as_deref(), Some("true"));
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fire_and_forget_no_to_channel_drops_response() -> allora_core::Result<()> {
+        let addr: SocketAddr = "127.0.0.1:31201".parse().unwrap();
+        let server_bodies = spawn_capture_server(addr, "ack", 202).await;
+
+        let yaml = r#"
+version: 1
+channels:
+  - kind: direct
+    id: outbound_requests
+http-outbound-adapters:
+  - id: fire-forget
+    host: 127.0.0.1
+    port: 31201
+    base-path: /
+    method: POST
+    from: outbound_requests
+"#;
+        let rt = build_runtime_from_str(yaml, crate::dsl::DslFormat::Yaml)?;
+        wire_http_outbound_adapters(&rt)?;
+
+        let inbound = rt
+            .channels_slice()
+            .iter()
+            .find(|c| c.id() == "outbound_requests")
+            .cloned()
+            .expect("inbound registered");
+        inbound
+            .send(Exchange::new(Message::from_text("notify")))
+            .await?;
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        let got_bodies = server_bodies.lock().unwrap().clone();
+        assert_eq!(got_bodies, vec![b"notify".to_vec()]);
+        // No outbound channel declared → no follow-up assertion to make
+        // beyond "the server saw the request and we didn't crash."
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn yaml_without_outbound_adapters_is_a_clean_noop() -> allora_core::Result<()> {
+        let yaml = r#"
+version: 1
+channels:
+  - kind: direct
+    id: inbound
+"#;
+        let rt = build_runtime_from_str(yaml, crate::dsl::DslFormat::Yaml)?;
+        assert_eq!(rt.http_outbound_adapter_count(), 0);
+        wire_http_outbound_adapters(&rt)?; // no-op
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn adapter_without_from_is_static_only_not_wired() -> allora_core::Result<()> {
+        let yaml = r#"
+version: 1
+channels:
+  - kind: direct
+    id: anything
+http-outbound-adapters:
+  - id: static-out
+    host: 127.0.0.1
+    port: 9
+    base-path: /
+"#;
+        let rt = build_runtime_from_str(yaml, crate::dsl::DslFormat::Yaml)?;
+        assert_eq!(rt.http_outbound_adapter_count(), 1);
+        let activation = &rt.http_outbound_adapters()[0];
+        assert_eq!(activation.id(), "static-out");
+        assert_eq!(activation.from(), None);
+        assert_eq!(activation.to(), None);
+        wire_http_outbound_adapters(&rt)?; // no-op (no from:)
         Ok(())
     }
 }

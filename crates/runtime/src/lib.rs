@@ -92,7 +92,7 @@ pub use channel::{
     Channel, ChannelRef, CorrelationSupport, DirectChannel, PollableChannel, QueueChannel,
     SubscribableChannel,
 };
-pub use dsl::runtime::{AlloraRuntime, FilterActivation};
+pub use dsl::runtime::{AlloraRuntime, FilterActivation, HttpOutboundAdapterActivation};
 pub use dsl::{
     build, build_channel, build_channel_from_str, build_filter, build_service, DslFormat,
 };

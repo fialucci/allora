@@ -1,6 +1,6 @@
 [package]
 name = "allora-runtime"
-version = "0.0.7"
+version = "0.0.8"
 edition = "2021"
 authors = ["Allora Contributors"]
 description = "Allora runtime and DSL implementation (internal crate)."
@@ -21,8 +21,8 @@ tracing = "0.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 inventory = "0.3"
-allora-core = { version = "0.0.7", path = "../core" }
-allora-http = { version = "0.0.7", path = "../http" }
+allora-core = { version = "0.0.8", path = "../core" }
+allora-http = { version = "0.0.8", path = "../http" }
 hyper = { version = "0.14", features = ["client", "http1"] }
 
 [dependencies.tokio]
