@@ -85,19 +85,14 @@ pub use allora_core::{Endpoint, EndpointBuilder, EndpointSource, InMemoryEndpoin
 
 // Top-level HTTP re-exports (behind the `http` feature)
 pub use allora_http::{
-    HttpInboundAdapter,
-    HttpInboundBuilder,
-    HttpOutboundAdapter,
-    HttpOutboundAdapterBuilder,
-    Mep,
-    InboundHttpExt,
-    OutboundHttpExt,
+    HttpInboundAdapter, HttpInboundBuilder, HttpOutboundAdapter, HttpOutboundAdapterBuilder,
+    InboundHttpExt, Mep, OutboundHttpExt,
 };
 pub use channel::{
     Channel, ChannelRef, CorrelationSupport, DirectChannel, PollableChannel, QueueChannel,
     SubscribableChannel,
 };
-pub use dsl::runtime::AlloraRuntime;
+pub use dsl::runtime::{AlloraRuntime, FilterActivation};
 pub use dsl::{
     build, build_channel, build_channel_from_str, build_filter, build_service, DslFormat,
 };
@@ -124,23 +119,12 @@ pub fn all_service_descriptors() -> Vec<&'static ServiceDescriptor> {
 
 pub mod adapter {
     pub use allora_core::adapter::{
-        ensure_correlation,
-        BaseAdapter,
-        InboundAdapter,
-        OutboundAdapter,
-        OutboundDispatchResult,
-        Adapter,
-        InboundStage,
-        OutboundStage,
+        ensure_correlation, Adapter, BaseAdapter, InboundAdapter, InboundStage, OutboundAdapter,
+        OutboundDispatchResult, OutboundStage,
     };
     pub use allora_http::{
-        HttpInboundAdapter,
-        HttpInboundBuilder,
-        HttpOutboundAdapter,
-        HttpOutboundAdapterBuilder,
-        Mep,
-        InboundHttpExt,
-        OutboundHttpExt,
+        HttpInboundAdapter, HttpInboundBuilder, HttpOutboundAdapter, HttpOutboundAdapterBuilder,
+        InboundHttpExt, Mep, OutboundHttpExt,
     };
 }
 

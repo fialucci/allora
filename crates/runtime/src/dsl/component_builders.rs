@@ -71,6 +71,7 @@ use crate::spec::{AggregatorSpec, AggregatorsSpec};
 use crate::spec::{HttpInboundAdapterSpec, HttpInboundAdaptersSpec};
 use crate::spec::{HttpOutboundAdapterSpec, HttpOutboundAdaptersSpec};
 use crate::{
+    dsl::runtime::FilterActivation,
     spec::{ChannelKindSpec, ChannelSpec, ChannelsSpec, FilterSpec, FiltersSpec},
     spec::{ServiceActivatorSpec, ServiceActivatorsSpec},
     Channel, ClosureProcessor, Error, Filter, Result,
@@ -185,7 +186,7 @@ pub fn build_filter_from_spec(spec: FilterSpec) -> Result<Filter> {
 /// * Generated ids are stored on the runtime `Filter` for diagnostics and future routing metadata.
 /// * Malformed reserved IDs (e.g. `filter:auto.bad`) are ignored for sequence advancement and a
 ///   warning is emitted via `tracing::warn!`.
-pub fn build_filters_from_spec(spec: FiltersSpec) -> Result<Vec<Filter>> {
+pub fn build_filters_from_spec(spec: FiltersSpec) -> Result<Vec<FilterActivation>> {
     let mut result = Vec::with_capacity(spec.filters().len());
     const AUTO_PREFIX: &str = "filter:auto.";
     let mut used = HashSet::new();
@@ -207,16 +208,27 @@ pub fn build_filters_from_spec(spec: FiltersSpec) -> Result<Vec<Filter>> {
             used.insert(id.to_string());
         }
     }
-    // Second pass: build filters, generate ids for missing ones
+    // Second pass: build filters, generate ids for missing ones, and pair
+    // each filter with the channel routing metadata (`from` / `to`) from
+    // its spec so the runtime can wire it to channels.
     let mut auto_ctr = max_auto_explicit + 1;
     for f in spec.filters() {
-        if let Some(id) = f.id() {
-            result.push(Filter::from_apl_with_id(Some(id.to_string()), f.when())?);
-            continue;
-        }
-        let gen_id = format!("{AUTO_PREFIX}{auto_ctr}");
-        auto_ctr += 1;
-        result.push(Filter::from_apl_with_id(Some(gen_id), f.when())?);
+        let (filter_id, filter) = if let Some(id) = f.id() {
+            let id = id.to_string();
+            let filter = Filter::from_apl_with_id(Some(id.clone()), f.when())?;
+            (id, filter)
+        } else {
+            let gen_id = format!("{AUTO_PREFIX}{auto_ctr}");
+            auto_ctr += 1;
+            let filter = Filter::from_apl_with_id(Some(gen_id.clone()), f.when())?;
+            (gen_id, filter)
+        };
+        result.push(FilterActivation::new(
+            filter,
+            f.from(),
+            f.to().map(|s| s.to_string()),
+            filter_id,
+        ));
     }
     Ok(result)
 }

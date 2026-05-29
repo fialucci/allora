@@ -63,11 +63,90 @@ use std::sync::Arc;
 /// channels into another structure or performing manual lifecycle management).
 pub struct AlloraRuntime {
     channels: Vec<Arc<dyn Channel>>,
-    filters: Vec<Filter>,
+    filters: Vec<FilterActivation>,
     services: Vec<ServiceProcessor>,
     service_activator_processors: Vec<ServiceActivatorProcessor>,
     http_inbound_adapters: Vec<HttpInboundAdapter>,
     http_outbound_adapters: Vec<HttpOutboundAdapter>,
+}
+
+/// Pairs a [`Filter`] predicate with the channel routing metadata from
+/// the [`FilterSpec`] it was built from.
+///
+/// A bare `Filter` only knows how to evaluate its predicate
+/// (`accepts(&exchange)`); it has no notion of "where to consume from" or
+/// "where to forward to." `FilterActivation` carries that wiring intent
+/// alongside the predicate so the runtime can subscribe each filter to
+/// its inbound channel and dispatch accepted exchanges to its outbound
+/// channel — the same pattern `ServiceActivatorProcessor` uses for
+/// services.
+///
+/// Constructed by [`build_filters_from_spec`](crate::dsl::component_builders::build_filters_from_spec)
+/// from a parsed [`FiltersSpec`] and stored on the runtime via
+/// [`with_filters`](AlloraRuntime::with_filters). The runtime calls
+/// [`wire_filters`](crate::wire_filters) during startup to subscribe
+/// each activation to its channels.
+///
+/// When `to` is `None` the filter is treated as **predicate-only** —
+/// kept in the runtime for callers that hold the `AlloraRuntime` and
+/// invoke `filter.accepts(...)` directly, but not auto-wired.
+pub struct FilterActivation {
+    filter: std::sync::Arc<Filter>,
+    from: String,
+    to: Option<String>,
+    id: String,
+}
+
+impl std::fmt::Debug for FilterActivation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FilterActivation")
+            .field("id", &self.id)
+            .field("from", &self.from)
+            .field("to", &self.to)
+            .finish()
+    }
+}
+
+impl FilterActivation {
+    /// Build a new activation from a `Filter` (typically the output of
+    /// `Filter::from_apl_with_id`) and its routing metadata.
+    pub fn new(
+        filter: Filter,
+        from: impl Into<String>,
+        to: Option<String>,
+        id: impl Into<String>,
+    ) -> Self {
+        Self {
+            filter: std::sync::Arc::new(filter),
+            from: from.into(),
+            to,
+            id: id.into(),
+        }
+    }
+
+    /// The wrapped filter predicate (shared via `Arc` so the runtime can
+    /// hand a clone to its subscription closure).
+    pub fn filter(&self) -> &std::sync::Arc<Filter> {
+        &self.filter
+    }
+
+    /// Inbound channel ID the runtime subscribes the filter to.
+    pub fn from(&self) -> &str {
+        &self.from
+    }
+
+    /// Outbound channel ID the runtime dispatches accepted exchanges to.
+    /// `None` means the filter is predicate-only (not auto-wired by the
+    /// runtime; available via the runtime accessor for external use).
+    pub fn to(&self) -> Option<&str> {
+        self.to.as_deref()
+    }
+
+    /// Stable identifier (matches the `FilterSpec`'s `id`, or a
+    /// deterministic `filter:auto.N` if the spec omitted it).
+    pub fn id(&self) -> &str {
+        &self.id
+    }
 }
 
 impl AlloraRuntime {
@@ -85,10 +164,12 @@ impl AlloraRuntime {
             http_outbound_adapters: Vec::new(),
         }
     }
-    /// Sets the filters for this runtime.
+    /// Sets the filter activations for this runtime.
     ///
-    /// Consumes the provided filters vector and assigns it to the runtime.
-    pub fn with_filters(mut self, filters: Vec<Filter>) -> Self {
+    /// Consumes the provided activations vector and assigns it to the
+    /// runtime. The runtime's `wire_filters` step then subscribes each
+    /// activation with a non-`None` `to:` to its inbound channel.
+    pub fn with_filters(mut self, filters: Vec<FilterActivation>) -> Self {
         self.filters = filters;
         self
     }
@@ -122,8 +203,8 @@ impl AlloraRuntime {
     pub fn channels_slice(&self) -> &[Arc<dyn Channel>] {
         &self.channels
     }
-    /// Borrow all filters (read-only slice).
-    pub fn filters(&self) -> &[Filter] {
+    /// Borrow all filter activations (read-only slice).
+    pub fn filters(&self) -> &[FilterActivation] {
         &self.filters
     }
     /// Borrow all services (read-only slice).
@@ -134,8 +215,8 @@ impl AlloraRuntime {
     pub fn into_channels(self) -> Vec<Arc<dyn Channel>> {
         self.channels
     }
-    /// Consume the runtime, yielding owned filters.
-    pub fn into_filters(self) -> Vec<Filter> {
+    /// Consume the runtime, yielding owned filter activations.
+    pub fn into_filters(self) -> Vec<FilterActivation> {
         self.filters
     }
     /// Consume the runtime, yielding owned services.

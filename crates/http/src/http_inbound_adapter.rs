@@ -274,9 +274,19 @@ impl HttpInboundBuilder {
             .parse()
             .expect("invalid socket addr");
         let id = self.id.unwrap_or_else(|| format!("http-inbound:{}", addr));
-        let base_path = if self.base_path.is_empty() { "/".to_string() } else { self.base_path };
-        let channel = self.channel.expect("channel must be set on HttpInboundBuilder before build()");
-        let effective_mep = if self.reply_channel.is_some() { Mep::InOut } else { self.mep };
+        let base_path = if self.base_path.is_empty() {
+            "/".to_string()
+        } else {
+            self.base_path
+        };
+        let channel = self
+            .channel
+            .expect("channel must be set on HttpInboundBuilder before build()");
+        let effective_mep = if self.reply_channel.is_some() {
+            Mep::InOut
+        } else {
+            self.mep
+        };
         let adapter = HttpInboundAdapter {
             id: id.clone(),
             addr,

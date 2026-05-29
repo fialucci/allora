@@ -1,6 +1,6 @@
 [package]
 name = "allora-http"
-version = "0.0.5"
+version = "0.0.6"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["Allora Contributors"]
@@ -17,7 +17,7 @@ name = "allora_http"
 path = "src/lib.rs"
 
 [dependencies]
-allora-core = { version = "0.0.5", path = "../core" }
+allora-core = { version = "0.0.6", path = "../core" }
 tokio = { version = "1.39", features = ["rt", "rt-multi-thread", "macros", "sync"] }
 hyper = { version = "0.14", features = ["full"] }
 tracing = "0.1"
