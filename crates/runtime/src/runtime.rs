@@ -498,9 +498,27 @@ pub fn wire_http_outbound_adapters(rt: &AlloraRuntime) -> Result<()> {
             );
             continue;
         }
-        let outbound_arc_opt = activation
-            .to()
-            .and_then(|to| rt.channels_slice().iter().find(|c| c.id() == to).cloned());
+        // Resolve `to:` if declared. A missing channel is a config error
+        // — not silent fire-and-forget — so we skip wiring loudly rather
+        // than swallow a typo. The fire-and-forget mode is reserved for
+        // activations that explicitly omit `to:` from the spec.
+        let outbound_arc_opt = match activation.to() {
+            None => None,
+            Some(to_name) => match rt.channels_slice().iter().find(|c| c.id() == to_name) {
+                Some(arc) => Some(arc.clone()),
+                None => {
+                    tracing::warn!(
+                        target = "allora::http_outbound",
+                        http_outbound.id = activation.id(),
+                        from = from,
+                        to = to_name,
+                        "outbound channel declared but not registered – wiring skipped \
+                         (config mismatch; either declare the channel or remove `to:`)"
+                    );
+                    continue;
+                }
+            },
+        };
         debug!(
             http_outbound.id = activation.id(),
             inbound = from,
@@ -800,18 +818,24 @@ mod wire_http_outbound_tests {
     use allora_core::{Exchange, Message};
     use hyper::service::{make_service_fn, service_fn};
     use hyper::{Body, Request, Response, Server};
-    use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
-    /// Spawn a hyper server on `addr` that records every request body
-    /// it receives and replies with the given response body + status.
-    /// Returns the shared body sink.
+    /// Bind a hyper server on `127.0.0.1:0` (kernel-assigned ephemeral
+    /// port — avoids the cross-test port collisions a fixed port would
+    /// invite in CI). The server records every request body it receives
+    /// and replies with the given response body + status.
+    ///
+    /// Returns the bound port (callers interpolate it into their YAML
+    /// fixture) and the shared body sink.
     async fn spawn_capture_server(
-        addr: SocketAddr,
         reply_body: &'static str,
         reply_status: u16,
-    ) -> Arc<Mutex<Vec<Vec<u8>>>> {
+    ) -> (u16, Arc<Mutex<Vec<Vec<u8>>>>) {
+        let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
+        let port = std_listener.local_addr().expect("local_addr").port();
+        std_listener.set_nonblocking(true).expect("nonblocking");
+
         let bodies = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
         let bodies_cl = bodies.clone();
         let make = make_service_fn(move |_| {
@@ -832,10 +856,14 @@ mod wire_http_outbound_tests {
                 }))
             }
         });
-        let server = Server::bind(&addr).serve(make);
+        // `Server::from_tcp` hands hyper the already-bound listener —
+        // no race between drop and re-bind on a guessed port.
+        let server = Server::from_tcp(std_listener)
+            .expect("hyper from_tcp")
+            .serve(make);
         tokio::spawn(server);
-        tokio::time::sleep(Duration::from_millis(50)).await; // let bind settle
-        bodies
+        tokio::time::sleep(Duration::from_millis(50)).await; // let accept loop spin up
+        (port, bodies)
     }
 
     fn collect_into(
@@ -873,10 +901,10 @@ mod wire_http_outbound_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn dispatches_message_and_forwards_response_to_outbound_channel(
     ) -> allora_core::Result<()> {
-        let addr: SocketAddr = "127.0.0.1:31200".parse().unwrap();
-        let server_bodies = spawn_capture_server(addr, "ok-from-server", 202).await;
+        let (port, server_bodies) = spawn_capture_server("ok-from-server", 202).await;
 
-        let yaml = r#"
+        let yaml = format!(
+            r#"
 version: 1
 channels:
   - kind: direct
@@ -886,13 +914,14 @@ channels:
 http-outbound-adapters:
   - id: test-out
     host: 127.0.0.1
-    port: 31200
+    port: {port}
     base-path: /
     method: POST
     from: outbound_requests
     to: dispatch_results
-"#;
-        let rt = build_runtime_from_str(yaml, crate::dsl::DslFormat::Yaml)?;
+"#
+        );
+        let rt = build_runtime_from_str(&yaml, crate::dsl::DslFormat::Yaml)?;
         wire_http_outbound_adapters(&rt)?;
 
         let results = collect_into(&rt, "dispatch_results");
@@ -926,10 +955,10 @@ http-outbound-adapters:
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn fire_and_forget_no_to_channel_drops_response() -> allora_core::Result<()> {
-        let addr: SocketAddr = "127.0.0.1:31201".parse().unwrap();
-        let server_bodies = spawn_capture_server(addr, "ack", 202).await;
+        let (port, server_bodies) = spawn_capture_server("ack", 202).await;
 
-        let yaml = r#"
+        let yaml = format!(
+            r#"
 version: 1
 channels:
   - kind: direct
@@ -937,12 +966,13 @@ channels:
 http-outbound-adapters:
   - id: fire-forget
     host: 127.0.0.1
-    port: 31201
+    port: {port}
     base-path: /
     method: POST
     from: outbound_requests
-"#;
-        let rt = build_runtime_from_str(yaml, crate::dsl::DslFormat::Yaml)?;
+"#
+        );
+        let rt = build_runtime_from_str(&yaml, crate::dsl::DslFormat::Yaml)?;
         wire_http_outbound_adapters(&rt)?;
 
         let inbound = rt
@@ -974,6 +1004,56 @@ channels:
         let rt = build_runtime_from_str(yaml, crate::dsl::DslFormat::Yaml)?;
         assert_eq!(rt.http_outbound_adapter_count(), 0);
         wire_http_outbound_adapters(&rt)?; // no-op
+        Ok(())
+    }
+
+    /// A `to:` channel name that isn't registered on the runtime is a
+    /// config error — the wiring **skips** loudly (`warn!`) rather than
+    /// silently degrading to fire-and-forget. (Caught in PR #26 review.)
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn missing_to_channel_skips_wiring_instead_of_silent_fire_and_forget(
+    ) -> allora_core::Result<()> {
+        let (port, server_bodies) = spawn_capture_server("ack", 202).await;
+
+        // `to: nonexistent` — note: the channel is NOT in `channels:`.
+        let yaml = format!(
+            r#"
+version: 1
+channels:
+  - kind: direct
+    id: outbound_requests
+http-outbound-adapters:
+  - id: misconfigured
+    host: 127.0.0.1
+    port: {port}
+    base-path: /
+    method: POST
+    from: outbound_requests
+    to: nonexistent
+"#
+        );
+        let rt = build_runtime_from_str(&yaml, crate::dsl::DslFormat::Yaml)?;
+        wire_http_outbound_adapters(&rt)?;
+
+        let inbound = rt
+            .channels_slice()
+            .iter()
+            .find(|c| c.id() == "outbound_requests")
+            .cloned()
+            .expect("inbound registered");
+        // If wiring incorrectly degraded to fire-and-forget, the server
+        // would see the request. We want to assert it does NOT.
+        inbound
+            .send(Exchange::new(Message::from_text("should-not-be-sent")))
+            .await?;
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        let got_bodies = server_bodies.lock().unwrap().clone();
+        assert!(
+            got_bodies.is_empty(),
+            "wiring skipped due to missing `to:` should mean the adapter is not subscribed; \
+             got bodies={got_bodies:?}"
+        );
         Ok(())
     }
 
