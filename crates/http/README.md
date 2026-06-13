@@ -117,23 +117,28 @@ Allora channel, where normal processors and services can act on them.
 An outbound adapter can be used from within a processor or service to send HTTP requests based on an `Exchange`:
 
 ```rust,no_run
+use allora_core::adapter::Adapter;
 use allora_core::message::{Exchange, Message};
-use allora_http::Adapter;
+use allora_http::OutboundHttpExt;
 
 #[tokio::main]
 async fn main() {
-    // Build an outbound HTTP adapter (for example, POST to a webhook)
+    // Build an outbound HTTP adapter (for example, POST to a webhook).
+    // The `url:` field accepts either `http://` or `https://` schemes —
+    // HTTPS is handled transparently via `rustls`.
     let outbound = Adapter::outbound()
         .http()
-        .post("http://localhost:8080/endpoint")
-        .build();
+        .url("https://localhost:8080/endpoint")
+        .build()
+        .expect("outbound HTTP adapter should build");
 
     // Prepare an Exchange to send
     let ex = Exchange::new(Message::from_text("payload"));
 
     // Dispatch the exchange as an HTTP request
+    use allora_core::adapter::OutboundAdapter;
     outbound
-        .dispatch(ex)
+        .dispatch(&ex)
         .await
         .expect("outbound HTTP dispatch should succeed");
 }

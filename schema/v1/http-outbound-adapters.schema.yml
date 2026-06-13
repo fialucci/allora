@@ -1,5 +1,9 @@
 # Allora HTTP Outbound Adapters Collection DSL Schema (v1)
 # Defines a collection of HTTP outbound adapters.
+#
+# Breaking change in Allora 0.0.9: the `host` + `port` + `base-path` triple was
+# replaced by a single `url:` field that must include the scheme. Both
+# `http://` and `https://` are accepted.
 
 $schema: "https://json-schema.org/draft/2020-12/schema"
 $id: "local://schemas/v1/http-outbound-adapters.schema.yml"
@@ -22,7 +26,7 @@ properties:
     description: "List of HTTP outbound adapter definitions"
     items:
       type: object
-      required: [ host, port ]
+      required: [ url ]
       additionalProperties: false
       properties:
         id:
@@ -31,28 +35,14 @@ properties:
           description: |
             Optional explicit adapter identifier. Must be non-empty when present.
             Must be unique across the collection; missing ids may be auto-generated.
-        host:
+        url:
           type: string
           minLength: 1
-          description: "Remote host or IP (e.g. 127.0.0.1)."
-          default: 127.0.0.1
-        port:
-          type: integer
-          minimum: 1
-          maximum: 65535
-          description: "Remote TCP port."
-          default: 80
-        base-path:
-          type: string
-          minLength: 1
-          pattern: '^/.*'
-          description: "Leading path prefix (must start with '/')."
-          default: "/"
-        path:
-          type: string
-          minLength: 1
-          pattern: '^/.*'
-          description: "Optional trailing path segment appended to base-path."
+          format: uri
+          pattern: '^https?://'
+          description: |
+            Full target URL. Must include the scheme (`http://` or `https://`).
+            Replaces the legacy `host` + `port` + `base-path` triple (removed in 0.0.9).
         method:
           type: string
           enum: [ GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD ]
@@ -69,13 +59,7 @@ examples:
   - version: 1
     http-outbound-adapters:
       - id: http.outboundEcho
-        host: 127.0.0.1
-        port: 18080
-        base-path: /api
-        path: /echo
+        url: http://127.0.0.1:18080/api/echo
         method: POST
-      - host: api.service.internal
-        port: 443
-        base-path: /v1
+      - url: https://api.service.internal/v1
         method: GET
-

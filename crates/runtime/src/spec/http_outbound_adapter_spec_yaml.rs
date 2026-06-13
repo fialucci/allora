@@ -39,28 +39,23 @@ impl HttpOutboundAdapterSpecYamlParser {
         let root: HttpOutboundAdapterSpecRootV1 = serde_yaml::from_value(synthesized)
             .map_err(|e| Error::serialization(format!("yaml parse error: {e}")))?;
         let blk = &root.http_outbound_adapter;
-        if blk.host.is_empty() {
+        if blk.url.is_empty() {
             return Err(Error::serialization(
-                "http-outbound-adapter.host must not be empty",
+                "http-outbound-adapter.url must not be empty",
             ));
         }
-        if blk.port == 0 {
-            return Err(Error::serialization(
-                "http-outbound-adapter.port out of range (1-65535)",
-            ));
-        }
-        if let Some(bp) = &blk.base_path {
-            if bp.is_empty() || !bp.starts_with('/') {
-                return Err(Error::serialization(
-                    "http-outbound-adapter.base-path must start with '/'",
-                ));
-            }
-        }
-        if let Some(p) = &blk.path {
-            if p.is_empty() || !p.starts_with('/') {
-                return Err(Error::serialization(
-                    "http-outbound-adapter.path must start with '/'",
-                ));
+        // Validate URL eagerly so misconfiguration surfaces at config load,
+        // not at first dispatch. Also enforce that a scheme is present and
+        // is one of the schemes the underlying client supports.
+        let parsed = url::Url::parse(&blk.url)
+            .map_err(|e| Error::serialization(format!("http-outbound-adapter.url invalid: {e}")))?;
+        match parsed.scheme() {
+            "http" | "https" => {}
+            other => {
+                return Err(Error::serialization(format!(
+                    "http-outbound-adapter.url has unsupported scheme '{}' (expected http or https)",
+                    other
+                )));
             }
         }
         if let Some(idv) = &blk.id {

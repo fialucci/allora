@@ -79,21 +79,22 @@ use crate::{
 use allora_core::patterns::aggregator::Aggregator;
 use allora_http::{HttpInboundAdapter, InboundHttpExt, Mep};
 use allora_http::{HttpOutboundAdapter, OutboundHttpExt};
-use hyper::Method;
+use reqwest::Method as ReqwestMethod;
 
-/// Helper: parse HTTP method string into `hyper::Method`.
-/// Accepts common verbs (GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD) in uppercase; falls back
-/// to custom method parsing via `Method::from_bytes` (defaulting to POST if invalid).
-fn parse_http_method(m: &str) -> Method {
+/// Helper: parse HTTP method string into `reqwest::Method` for the **outbound**
+/// adapter builder. The outbound adapter migrated to `reqwest` for native
+/// HTTPS support in 0.0.9. The inbound adapter (still hyper-based) does not
+/// accept a method override, so no symmetric inbound helper is needed.
+fn parse_http_method_outbound(m: &str) -> ReqwestMethod {
     match m {
-        "GET" => Method::GET,
-        "POST" => Method::POST,
-        "PUT" => Method::PUT,
-        "PATCH" => Method::PATCH,
-        "DELETE" => Method::DELETE,
-        "OPTIONS" => Method::OPTIONS,
-        "HEAD" => Method::HEAD,
-        other => Method::from_bytes(other.as_bytes()).unwrap_or(Method::POST),
+        "GET" => ReqwestMethod::GET,
+        "POST" => ReqwestMethod::POST,
+        "PUT" => ReqwestMethod::PUT,
+        "PATCH" => ReqwestMethod::PATCH,
+        "DELETE" => ReqwestMethod::DELETE,
+        "OPTIONS" => ReqwestMethod::OPTIONS,
+        "HEAD" => ReqwestMethod::HEAD,
+        other => ReqwestMethod::from_bytes(other.as_bytes()).unwrap_or(ReqwestMethod::POST),
     }
 }
 
@@ -504,7 +505,7 @@ pub fn build_http_inbound_adapters_from_spec(
 ///
 /// Errors:
 /// * Empty id string.
-/// * (Indirect) build errors from the adapter builder (e.g. missing host/port handled upstream by spec parser).
+/// * (Indirect) build errors from the adapter builder (e.g. invalid URL handled upstream by spec parser).
 pub fn build_http_outbound_adapter_from_spec(
     spec: HttpOutboundAdapterSpec,
 ) -> Result<HttpOutboundAdapter> {
@@ -515,16 +516,9 @@ pub fn build_http_outbound_adapter_from_spec(
             ));
         }
     }
-    let mut builder = Adapter::outbound()
-        .http()
-        .host(spec.host())
-        .port(spec.port())
-        .base_path(spec.base_path());
-    if let Some(p) = spec.path() {
-        builder = builder.path(p);
-    }
+    let mut builder = Adapter::outbound().http().url(spec.url());
     if let Some(m) = spec.method() {
-        builder = builder.method(parse_http_method(m));
+        builder = builder.method(parse_http_method_outbound(m));
     }
     if !spec.use_out_msg() {
         builder = builder.use_out_msg(false);
@@ -544,7 +538,7 @@ pub fn build_http_outbound_adapter_from_spec(
 ///   (or after any explicitly provided reserved `http-outbound-adapter:auto.<X>` ids) within a single build invocation.
 /// * Generated ids skip already used values (including explicitly supplied ones and earlier generated ones).
 ///
-/// Method Handling uses `parse_http_method` (see single builder).
+/// Method Handling uses `parse_http_method_outbound` (see single builder).
 ///
 /// Returned adapters preserve the input order.
 pub fn build_http_outbound_adapters_from_spec(
@@ -592,17 +586,9 @@ pub fn build_http_outbound_adapters_from_spec(
                 candidate
             }
         };
-        let mut builder = Adapter::outbound()
-            .http()
-            .host(a.host())
-            .port(a.port())
-            .base_path(a.base_path())
-            .id(id_final.clone());
-        if let Some(p) = a.path() {
-            builder = builder.path(p);
-        }
+        let mut builder = Adapter::outbound().http().url(a.url()).id(id_final.clone());
         if let Some(m) = a.method() {
-            builder = builder.method(parse_http_method(m));
+            builder = builder.method(parse_http_method_outbound(m));
         }
         if !a.use_out_msg() {
             builder = builder.use_out_msg(false);

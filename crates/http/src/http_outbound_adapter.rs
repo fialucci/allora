@@ -1,9 +1,14 @@
-//! HTTP Outbound Adapter: dispatches an `Exchange` to an external HTTP endpoint.
+//! HTTP Outbound Adapter: dispatches an `Exchange` to an external HTTP(S) endpoint.
 //!
 //! # Overview
 //! `HttpOutboundAdapter` implements [`OutboundAdapter`], taking the (optionally transformed)
 //! message from an `Exchange` and POSTing (default) it to a configured remote endpoint.
 //! A builder is provided for ergonomic configuration.
+//!
+//! As of 0.0.9 the adapter is configured by a single `url` (string parsed into
+//! [`url::Url`]) rather than the previous `host` + `port` + `base-path` triple,
+//! and the underlying HTTP client is [`reqwest::Client`] — which transparently
+//! supports both `http://` and `https://` schemes via `rustls`.
 //!
 //! # Selection of Message
 //! By default the adapter prefers `exchange.out_msg` (if present) falling back to `exchange.in_msg`.
@@ -11,10 +16,7 @@
 //!
 //! # Builder Fields
 //! * id (optional) – stable identifier; auto-generated UUID if omitted.
-//! * host (required) – remote host or IP.
-//! * port (required) – remote TCP port.
-//! * base_path (optional) – leading path (default "/").
-//! * path (optional) – trailing path segment appended to base_path.
+//! * url (required) – full target URL including scheme (e.g. `https://api.example.com/submit`).
 //! * method (optional) – HTTP method (default POST).
 //! * use_out_msg (optional) – whether to prioritize `out_msg` (default true).
 //!
@@ -29,12 +31,9 @@
 //! # async fn demo() {
 //! let adapter = HttpOutboundAdapter::builder()
 //!     .id("http-public")
-//!     .host("0.0.0.0")
-//!     .port(8080)
-//!     .base_path("/")
+//!     .url("https://api.example.com/submit")
 //!     .build().unwrap();
 //! let mut exchange = Exchange::new(Message::from_text("ping"));
-//! #[cfg(feature = "async")]
 //! let _res = adapter.dispatch(&exchange).await.unwrap();
 //! # }
 //! ```
@@ -51,30 +50,25 @@ use allora_core::{
     Exchange, Payload,
 };
 use async_trait::async_trait;
-use hyper::client::HttpConnector;
-use hyper::{Body, Client, Method, Request};
+use reqwest::{Client, Method};
 use std::fmt::Debug;
 
 #[derive(Clone)]
 pub struct HttpOutboundAdapter {
     id: String,
-    host: String,
-    port: u16,
-    base_path: String,
-    path: Option<String>,
+    /// Parsed, validated target URL. Cached at construction; the per-dispatch
+    /// hot path just clones this `Url` and hands it to `reqwest`.
+    url: url::Url,
     method: Method,
     use_out_msg: bool,
-    client: Client<HttpConnector>,
+    client: Client,
 }
 
 impl Debug for HttpOutboundAdapter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HttpOutboundAdapter")
             .field("id", &self.id)
-            .field("host", &self.host)
-            .field("port", &self.port)
-            .field("base_path", &self.base_path)
-            .field("path", &self.path)
+            .field("url", &self.url.as_str())
             .field("method", &self.method.as_str())
             .field("use_out_msg", &self.use_out_msg)
             .finish()
@@ -85,24 +79,13 @@ impl HttpOutboundAdapter {
     pub fn builder() -> HttpOutboundAdapterBuilder {
         HttpOutboundAdapterBuilder::default()
     }
-    fn full_url(&self) -> String {
-        let mut base = self.base_path.clone();
-        if !base.starts_with('/') {
-            base.insert(0, '/');
-        }
-        if base.len() > 1 && base.ends_with('/') {
-            base.pop();
-        }
-        let mut full = base;
-        if let Some(p) = &self.path {
-            if !p.is_empty() {
-                if !p.starts_with('/') {
-                    full.push('/');
-                }
-                full.push_str(p);
-            }
-        }
-        format!("http://{}:{}{}", self.host, self.port, full)
+    /// Configured target URL (parsed). Useful for tests and structured logging.
+    pub fn url(&self) -> &url::Url {
+        &self.url
+    }
+    /// Configured HTTP method (default POST).
+    pub fn method(&self) -> &Method {
+        &self.method
     }
 }
 
@@ -115,12 +98,12 @@ impl BaseAdapter for HttpOutboundAdapter {
 #[derive(Default)]
 pub struct HttpOutboundAdapterBuilder {
     id: Option<String>,
-    host: Option<String>,
-    port: Option<u16>,
-    base_path: Option<String>,
-    path: Option<String>,
+    url: Option<String>,
     method: Option<Method>,
     use_out_msg: Option<bool>,
+    /// Test-only escape hatch — see the `dangerous_accept_invalid_certs`
+    /// setter. Off by default. **Do not enable in production.**
+    dangerous_accept_invalid_certs: bool,
 }
 
 impl HttpOutboundAdapterBuilder {
@@ -128,20 +111,9 @@ impl HttpOutboundAdapterBuilder {
         self.id = Some(v.into());
         self
     }
-    pub fn host(mut self, v: impl Into<String>) -> Self {
-        self.host = Some(v.into());
-        self
-    }
-    pub fn port(mut self, v: u16) -> Self {
-        self.port = Some(v);
-        self
-    }
-    pub fn base_path(mut self, v: impl Into<String>) -> Self {
-        self.base_path = Some(v.into());
-        self
-    }
-    pub fn path(mut self, v: impl Into<String>) -> Self {
-        self.path = Some(v.into());
+    /// Set the full target URL (must include scheme; either `http://` or `https://`).
+    pub fn url(mut self, v: impl Into<String>) -> Self {
+        self.url = Some(v.into());
         self
     }
     pub fn method(mut self, m: Method) -> Self {
@@ -152,21 +124,40 @@ impl HttpOutboundAdapterBuilder {
         self.use_out_msg = Some(flag);
         self
     }
+    /// Disable TLS certificate validation on the underlying `reqwest::Client`.
+    ///
+    /// **Intended for tests only.** Enabling this against a real endpoint
+    /// defeats TLS — an active network attacker can read or modify all
+    /// traffic. Production configuration loaded from YAML never sets this
+    /// flag; it has no corresponding spec field.
+    pub fn dangerous_accept_invalid_certs(mut self, flag: bool) -> Self {
+        self.dangerous_accept_invalid_certs = flag;
+        self
+    }
     pub fn build(self) -> Result<HttpOutboundAdapter> {
-        let host = self.host.ok_or_else(|| Error::other("host required"))?;
-        let port = self.port.ok_or_else(|| Error::other("port required"))?;
+        let raw_url = self.url.ok_or_else(|| Error::other("url required"))?;
+        let parsed = url::Url::parse(&raw_url)
+            .map_err(|e| Error::other(format!("invalid url '{raw_url}': {e}")))?;
+        match parsed.scheme() {
+            "http" | "https" => {}
+            other => {
+                return Err(Error::other(format!(
+                    "unsupported url scheme '{other}' (expected http or https)"
+                )));
+            }
+        }
         let id = self.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        let base_path = self.base_path.unwrap_or_else(|| "/".to_string());
         let method = self.method.unwrap_or(Method::POST);
+        let client = Client::builder()
+            .danger_accept_invalid_certs(self.dangerous_accept_invalid_certs)
+            .build()
+            .map_err(|e| Error::other(format!("failed to build http client: {e}")))?;
         Ok(HttpOutboundAdapter {
             id,
-            host,
-            port,
-            base_path,
-            path: self.path,
+            url: parsed,
             method,
             use_out_msg: self.use_out_msg.unwrap_or(true),
-            client: Client::new(),
+            client,
         })
     }
 }
@@ -187,22 +178,16 @@ impl OutboundAdapter for HttpOutboundAdapter {
             }
             Payload::Empty => Vec::new(),
         };
-        let req = Request::builder()
-            .method(self.method.clone())
-            .uri(self.full_url())
-            .header("Content-Type", "application/octet-stream")
-            .body(Body::from(bytes))
-            .map_err(|e| Error::other(e.to_string()))?;
         let resp = self
             .client
-            .request(req)
+            .request(self.method.clone(), self.url.clone())
+            .header("Content-Type", "application/octet-stream")
+            .body(bytes)
+            .send()
             .await
             .map_err(|e| Error::other(e.to_string()))?;
         let status = resp.status();
-        let body_bytes = hyper::body::to_bytes(resp.into_body())
-            .await
-            .map_err(|e| Error::other(e.to_string()))?;
-        let body_string = String::from_utf8_lossy(&body_bytes).to_string();
+        let body_string = resp.text().await.map_err(|e| Error::other(e.to_string()))?;
         Ok(OutboundDispatchResult {
             acknowledged: status.is_success(),
             message: Some(format!("HTTP {}", status)),

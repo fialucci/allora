@@ -1,9 +1,15 @@
+//! Integration tests for the http-outbound-adapters collection spec.
+//!
+//! Validates the 0.0.9 `url:` schema for the collection form (the form a
+//! real `allora.yaml` uses).
+
+use allora_runtime::error::Error as RuntimeError;
 use allora_runtime::spec::{
     HttpOutboundAdapterSpec, HttpOutboundAdaptersSpec, HttpOutboundAdaptersSpecYamlParser,
 };
 
 #[test]
-fn http_outbound_adapters_spec_yaml_parse_two() {
+fn parse_two_adapters() {
     let raw = r#"version: 1
 http-outbound-adapters:
   - id: first
@@ -22,17 +28,12 @@ http-outbound-adapters:
 }
 
 #[test]
-fn http_outbound_adapters_spec_programmatic_add_and_push() {
+fn programmatic_add_and_push() {
     let mut spec = HttpOutboundAdaptersSpec::new(1);
-    // Programmatic add/push using single adapter specs constructed manually.
     let a1 = HttpOutboundAdapterSpec::new(
-        // url
         "http://127.0.0.1:18080/alpha/ping",
-        // method
         Some("POST"),
-        // id
         None,
-        // use_out_msg
         true,
     );
     let a2 = HttpOutboundAdapterSpec::new(
@@ -51,12 +52,12 @@ fn http_outbound_adapters_spec_programmatic_add_and_push() {
 }
 
 #[test]
-fn http_outbound_adapters_spec_yaml_missing_root_error() {
+fn missing_root_error() {
     let raw = "version: 1";
     let err = HttpOutboundAdaptersSpecYamlParser::parse_str(raw)
         .expect_err("expected missing root error");
     match err {
-        allora::Error::Serialization(msg) => {
+        RuntimeError::Serialization(msg) => {
             assert!(msg.contains("missing 'http-outbound-adapters'"))
         }
         other => panic!("unexpected error: {other:?}"),
@@ -64,14 +65,31 @@ fn http_outbound_adapters_spec_yaml_missing_root_error() {
 }
 
 #[test]
-fn http_outbound_adapters_spec_yaml_empty_sequence_error() {
+fn empty_sequence_error() {
     let raw = r#"version: 1
 http-outbound-adapters: []"#;
     let err = HttpOutboundAdaptersSpecYamlParser::parse_str(raw)
         .expect_err("expected empty sequence error");
     match err {
-        allora::Error::Serialization(msg) => {
+        RuntimeError::Serialization(msg) => {
             assert!(msg.contains("sequence must not be empty"))
+        }
+        other => panic!("unexpected error: {other:?}"),
+    }
+}
+
+#[test]
+fn invalid_url_in_collection_error() {
+    let raw = r#"version: 1
+http-outbound-adapters:
+  - id: bad
+    url: ":::not a url"
+"#;
+    let err = HttpOutboundAdaptersSpecYamlParser::parse_str(raw)
+        .expect_err("expected invalid url error inside collection");
+    match err {
+        RuntimeError::Serialization(msg) => {
+            assert!(msg.contains("url invalid"), "got: {msg}");
         }
         other => panic!("unexpected error: {other:?}"),
     }

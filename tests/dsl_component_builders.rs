@@ -56,34 +56,29 @@ fn build_channel_from_spec_empty_id_error() {
 #[test]
 /// GIVEN an HTTP outbound adapter spec with explicit id and method
 /// WHEN build_http_outbound_adapter_from_spec is invoked
-/// THEN the resulting adapter has matching id, host, port, path
+/// THEN the resulting adapter has matching id and target URL
 fn build_http_outbound_adapter_from_spec_explicit_id_success() {
     let spec = HttpOutboundAdapterSpec::with_id(
         "http.out.echo",
-        "127.0.0.1",
-        8080,
-        "/api",
-        Some("/echo"),
+        "http://127.0.0.1:8080/api/echo",
         Some("POST"),
         true,
     );
     let adapter = build_http_outbound_adapter_from_spec(spec).expect("adapter builds");
     assert_eq!(adapter.id(), "http.out.echo");
-    assert_eq!(adapter.host(), "127.0.0.1");
-    assert_eq!(adapter.port(), 8080);
+    assert_eq!(adapter.url().scheme(), "http");
+    assert_eq!(adapter.url().port(), Some(8080));
 }
 
 #[test]
-/// GIVEN an HTTP outbound adapter spec without id/method/base-path/path
+/// GIVEN an HTTP outbound adapter spec without id/method
 /// WHEN build_http_outbound_adapter_from_spec is invoked
-/// THEN a non-empty id is auto-generated and defaults are applied (base-path="/", method=POST)
+/// THEN a non-empty id is auto-generated and defaults are applied
 fn build_http_outbound_adapter_from_spec_auto_id_defaults() {
-    let spec = HttpOutboundAdapterSpec::new("127.0.0.1", 9090, "/", None, None, None, true);
+    let spec = HttpOutboundAdapterSpec::new("http://127.0.0.1:9090/", None, None, true);
     let adapter = build_http_outbound_adapter_from_spec(spec).expect("adapter builds");
     assert!(!adapter.id().is_empty(), "auto id should not be empty");
-    assert_eq!(adapter.host(), "127.0.0.1");
-    assert_eq!(adapter.port(), 9090);
-    // base_path() method not exposed; we infer by dispatch URL shape later if needed.
+    assert_eq!(adapter.url().port(), Some(9090));
 }
 
 #[test]
@@ -91,8 +86,8 @@ fn build_http_outbound_adapter_from_spec_auto_id_defaults() {
 /// WHEN each is built separately
 /// THEN the generated ids are distinct
 fn build_http_outbound_adapter_from_spec_auto_id_uniqueness() {
-    let spec_a = HttpOutboundAdapterSpec::new("127.0.0.1", 7001, "/", None, None, None, true);
-    let spec_b = HttpOutboundAdapterSpec::new("127.0.0.1", 7001, "/", None, None, None, true);
+    let spec_a = HttpOutboundAdapterSpec::new("http://127.0.0.1:7001/", None, None, true);
+    let spec_b = HttpOutboundAdapterSpec::new("http://127.0.0.1:7001/", None, None, true);
     let a = build_http_outbound_adapter_from_spec(spec_a).unwrap();
     let b = build_http_outbound_adapter_from_spec(spec_b).unwrap();
     assert_ne!(a.id(), b.id(), "auto ids should differ");
@@ -103,7 +98,8 @@ fn build_http_outbound_adapter_from_spec_auto_id_uniqueness() {
 /// WHEN build_http_outbound_adapter_from_spec is invoked
 /// THEN a serialization error complaining about empty id is returned
 fn build_http_outbound_adapter_from_spec_empty_id_error() {
-    let spec = HttpOutboundAdapterSpec::with_id("", "127.0.0.1", 8080, "/", None, None, true);
+    let spec =
+        HttpOutboundAdapterSpec::with_id("", "http://127.0.0.1:8080/", None, true);
     let err = build_http_outbound_adapter_from_spec(spec).expect_err("expected empty id error");
     match err {
         Error::Serialization(msg) => assert!(msg.contains("id must not be empty")),
@@ -119,18 +115,12 @@ fn build_http_outbound_adapters_from_spec_two_success() {
     let mut col = HttpOutboundAdaptersSpec::new(1);
     col.push(HttpOutboundAdapterSpec::with_id(
         "first",
-        "127.0.0.1",
-        9500,
-        "/",
-        Some("/a"),
+        "http://127.0.0.1:9500/a",
         None,
         true,
     ));
     col.push(HttpOutboundAdapterSpec::new(
-        "127.0.0.1",
-        9501,
-        "/b",
-        None,
+        "http://127.0.0.1:9501/b",
         Some("GET"),
         None,
         true,
@@ -138,8 +128,8 @@ fn build_http_outbound_adapters_from_spec_two_success() {
     let adapters = build_http_outbound_adapters_from_spec(col).expect("collection builds");
     assert_eq!(adapters.len(), 2);
     assert_eq!(adapters[0].id(), "first");
-    assert_eq!(adapters[0].port(), 9500);
-    assert_eq!(adapters[1].port(), 9501);
+    assert_eq!(adapters[0].adapter().url().port(), Some(9500));
+    assert_eq!(adapters[1].adapter().url().port(), Some(9501));
 }
 
 #[test]
@@ -150,19 +140,13 @@ fn build_http_outbound_adapters_duplicate_id_error() {
     let mut col = HttpOutboundAdaptersSpec::new(1);
     col.push(HttpOutboundAdapterSpec::with_id(
         "dup",
-        "127.0.0.1",
-        8001,
-        "/",
-        None,
+        "http://127.0.0.1:8001/",
         Some("POST"),
         true,
     ));
     col.push(HttpOutboundAdapterSpec::with_id(
         "dup",
-        "127.0.0.1",
-        8002,
-        "/",
-        None,
+        "http://127.0.0.1:8002/",
         Some("POST"),
         true,
     ));
@@ -181,30 +165,20 @@ fn build_http_outbound_adapters_duplicate_id_error() {
 /// THEN missing ids are generated deterministically starting after the highest explicit suffix
 fn build_http_outbound_adapters_auto_id_generation_sequence() {
     let mut col = HttpOutboundAdaptersSpec::new(1);
-    // Explicit reserved prefix id with suffix 5 sets starting point for generation at 6
     col.push(HttpOutboundAdapterSpec::with_id(
         "http-outbound-adapter:auto.5",
-        "127.0.0.1",
-        8100,
-        "/",
-        None,
+        "http://127.0.0.1:8100/",
         Some("POST"),
         true,
     ));
     col.push(HttpOutboundAdapterSpec::new(
-        "127.0.0.1",
-        8101,
-        "/",
-        None,
+        "http://127.0.0.1:8101/",
         Some("GET"),
         None,
         true,
     ));
     col.push(HttpOutboundAdapterSpec::new(
-        "127.0.0.1",
-        8102,
-        "/",
-        None,
+        "http://127.0.0.1:8102/",
         Some("DELETE"),
         None,
         true,

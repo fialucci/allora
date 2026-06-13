@@ -1,6 +1,6 @@
 [package]
 name = "allora-http"
-version = "0.0.8"
+version = "0.0.9"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["Allora Contributors"]
@@ -17,10 +17,18 @@ name = "allora_http"
 path = "src/lib.rs"
 
 [dependencies]
-allora-core = { version = "0.0.8", path = "../core" }
+allora-core = { version = "0.0.9", path = "../core" }
 tokio = { version = "1.39", features = ["rt", "rt-multi-thread", "macros", "sync"] }
 hyper = { version = "0.14", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+url = "2.5"
 tracing = "0.1"
 serde_json = "1.0"
 uuid = { version = "1.8", features = ["v4"] }
 async-trait = "0.1"
+
+[dev-dependencies]
+rcgen = "0.13"
+tokio-rustls = "0.26"
+rustls = { version = "0.23", features = ["ring"] }
+rustls-pemfile = "2"

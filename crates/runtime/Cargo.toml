@@ -1,6 +1,6 @@
 [package]
 name = "allora-runtime"
-version = "0.0.8"
+version = "0.0.9"
 edition = "2021"
 authors = ["Allora Contributors"]
 description = "Allora runtime and DSL implementation (internal crate)."
@@ -21,9 +21,13 @@ tracing = "0.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 inventory = "0.3"
-allora-core = { version = "0.0.8", path = "../core" }
-allora-http = { version = "0.0.8", path = "../http" }
+allora-core = { version = "0.0.9", path = "../core" }
+allora-http = { version = "0.0.9", path = "../http" }
 hyper = { version = "0.14", features = ["client", "http1"] }
+# `reqwest` is used solely for its re-exported `Method` type, which the
+# outbound builder takes as input. Tracking `allora-http`'s reqwest version.
+reqwest = { version = "0.12", default-features = false }
+url = "2.5"
 
 [dependencies.tokio]
 version = "1.39"

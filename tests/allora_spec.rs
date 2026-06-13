@@ -40,9 +40,7 @@ fn allora_spec_outbound_only_success() {
     let raw = r#"version: 1
 http-outbound-adapters:
   - id: http.outboundEcho
-    host: 127.0.0.1
-    port: 18080
-    base-path: /receiveGateway
+    url: http://127.0.0.1:18080/receiveGateway
     method: POST
 "#;
     let tf = temp_yaml(raw);

@@ -1,10 +1,6 @@
 version: 1
 http-outbound-adapter:
   id: http.outboundEcho
-  host: 127.0.0.1
-  port: 18080
-  base-path: /api
-  path: /echo
+  url: http://127.0.0.1:18080/api/echo
   method: POST
   use-out-msg: true
-

@@ -15,11 +15,13 @@ Channels are optional. This example omits them entirely and defines only one out
 version: 1
 http-outbound-adapters:
   - id: http.outboundEcho
-    host: 127.0.0.1
-    port: 18080
-    base-path: /receiveGateway
+    url: http://127.0.0.1:18080/receiveGateway
     method: POST
 ```
+
+`url` must include the scheme. Use `https://...` for TLS endpoints; certificate
+validation uses the system trust store. The old `host` + `port` + `base-path`
+fields were removed in 0.0.9 (see CHANGELOG).
 
 ## Run
 From repository root:

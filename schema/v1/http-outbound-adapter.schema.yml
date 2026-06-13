@@ -2,6 +2,11 @@
 # Defines a single HTTP outbound adapter that maps an internal Exchange/Message
 # to an outbound HTTP request (client-side dispatch). Runtime wiring may later
 # allow automatic channel-driven dispatch; this schema focuses on adapter shape.
+#
+# Breaking change in Allora 0.0.9: the `host` + `port` + `base-path` triple was
+# replaced by a single `url:` field that must include the scheme. Both
+# `http://` and `https://` are accepted; TLS uses `rustls` with the system
+# trust store.
 
 $schema: "https://json-schema.org/draft/2020-12/schema"
 $id: "local://schemas/v1/http-outbound-adapter.schema.yml"
@@ -21,7 +26,7 @@ properties:
   http-outbound-adapter:
     type: object
     description: "HTTP outbound adapter definition block"
-    required: [ host, port ]
+    required: [ url ]
     additionalProperties: false
     properties:
       id:
@@ -30,32 +35,15 @@ properties:
         description: |
           Optional explicit adapter identifier. Must be a non-empty string if provided.
           Uniqueness is enforced during build. When omitted the runtime may assign a deterministic auto id.
-      host:
+      url:
         type: string
         minLength: 1
-        description: "Remote host or IP the HTTP client targets (e.g. 127.0.0.1)."
-        default: 127.0.0.1
-      port:
-        type: integer
-        minimum: 1
-        maximum: 65535
-        description: "Remote TCP port."
-        default: 80
-      base-path:
-        type: string
-        minLength: 1
-        pattern: '^/.*'
+        format: uri
+        pattern: '^https?://'
         description: |
-          Leading path prefix (must start with '/'). Defaults to '/'. The final
-          request path is base-path + optional path.
-        default: "/"
-      path:
-        type: string
-        minLength: 1
-        pattern: '^/.*'
-        description: |
-          Optional trailing path segment appended to base-path. Must start with '/'.
-          If omitted, dispatch uses only base-path.
+          Full target URL the HTTP client dials. Must include the scheme;
+          both `http://` and `https://` are supported.
+          Replaces the legacy `host` + `port` + `base-path` triple (removed in 0.0.9).
       method:
         type: string
         enum: [ GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD ]
@@ -91,25 +79,17 @@ examples:
   - version: 1
     http-outbound-adapter:
       id: http.outboundEcho
-      host: 127.0.0.1
-      port: 18080
-      base-path: /api
-      path: /echo
+      url: http://127.0.0.1:18080/api/echo
       method: POST
       use-out-msg: true
   - version: 1
     http-outbound-adapter:
-      host: 10.0.0.5
-      port: 443
-      base-path: /v1
+      url: https://10.0.0.5/v1
       method: GET
   - version: 1
     http-outbound-adapter:
       id: chain.submit
-      host: 127.0.0.1
-      port: 8080
-      base-path: /oracle/submissions
+      url: https://devnet.fialucci.org/oracle/submissions
       method: POST
       from: signed_submissions
       to: chain_acks
-
