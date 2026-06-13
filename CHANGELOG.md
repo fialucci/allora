@@ -5,7 +5,45 @@ All notable changes to Allora are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project is pre-1.0; breaking changes can land in any release.
 
-## [0.0.9] — Unreleased
+## [0.0.10] — 2026-06-13
+
+### Added
+
+- **Error-path observability in `HttpOutboundAdapter::dispatch`.** Every
+  failure path now emits a structured `tracing::warn!` event so operators
+  can diagnose silent dispatch problems in log sinks (e.g. CloudWatch).
+  Four classes are covered:
+
+  1. **JSON serialization failure** on the request body (`Payload::Json`).
+     Fields: `url`, `error`.
+  2. **Transport / connection error** from `reqwest` (DNS, TCP, TLS, …).
+     Fields: `url`, `method`, `error`.
+  3. **Response body read failure** after a response was received.
+     Fields: `url`, `method`, `status`, `error`.
+  4. **Non-success HTTP status** (any non-2xx). Fields: `url`, `method`,
+     `status`, `body_preview` — the response body truncated to the first
+     **512 chars** (char-aware, not byte-aware, so non-ASCII responses
+     never panic on a UTF-8 boundary).
+
+  Successful dispatches stay silent — the happy path runs frequently and
+  `info!` here would flood log sinks.
+
+### Unchanged
+
+- Dispatch contract (`OutboundDispatchResult`, return shape, channel
+  propagation) is **identical** to 0.0.9. The new log calls are purely
+  additive — existing callers, including the channel-driven wiring in
+  `allora-runtime`, keep working without changes.
+- No new dependencies. `tracing` was already a direct dep of
+  `allora-http`.
+
+### Migration
+
+None — purely additive observability. Consumers should bump the
+`allora-*` dependency pins from `0.0.9` to `0.0.10` and rebuild; no code
+or YAML changes are required.
+
+## [0.0.9] — 2026-06-10
 
 ### Breaking
 
