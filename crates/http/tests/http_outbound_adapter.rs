@@ -1,12 +1,22 @@
-#![cfg(feature = "http")]
-use allora::adapter::BaseAdapter;
-use allora::{Exchange, HttpOutboundAdapter, Message, OutboundAdapter};
+//! Integration tests for `HttpOutboundAdapter`.
+//!
+//! These tests exercise the public adapter surface — the builder, URL
+//! validation, the plain-HTTP dispatch path, and (most importantly) the
+//! **HTTPS dispatch path**, which is new in 0.0.9. They live in
+//! `crates/http/tests/` so `cargo test -p allora-http` picks them up.
+
+use allora_core::adapter::OutboundAdapter;
+use allora_core::{Exchange, Message};
+use allora_http::HttpOutboundAdapter;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server};
-use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
-// Simple capture server storing last body received.
+// ─────────────────────────────────────────────────────────────────────────
+// Plain-HTTP dispatch — sanity check that the new `url:` schema still
+// drives the basic happy path the previous host/port/base-path triple did.
+// ─────────────────────────────────────────────────────────────────────────
+
 struct CaptureState {
     body: Arc<Mutex<Vec<u8>>>,
 }
@@ -22,7 +32,9 @@ impl CaptureState {
 async fn http_outbound_posts_out_msg_if_present() {
     let state = CaptureState::new();
     let body_arc = state.body.clone();
-    let addr: SocketAddr = "127.0.0.1:31110".parse().unwrap();
+    let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = std_listener.local_addr().unwrap().port();
+    std_listener.set_nonblocking(true).expect("nonblocking");
     let make = make_service_fn(move |_conn| {
         let body_arc = body_arc.clone();
         async move {
@@ -36,12 +48,14 @@ async fn http_outbound_posts_out_msg_if_present() {
             }))
         }
     });
-    let server = Server::bind(&addr).serve(make);
+    let server = Server::from_tcp(std_listener)
+        .expect("hyper from_tcp")
+        .serve(make);
     let server_handle = tokio::spawn(server);
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await; // wait for bind
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     let adapter = HttpOutboundAdapter::builder()
-        .url("http://127.0.0.1:31110/")
+        .url(format!("http://127.0.0.1:{port}/"))
         .id("out-test")
         .build()
         .unwrap();
@@ -52,7 +66,7 @@ async fn http_outbound_posts_out_msg_if_present() {
     assert!(res.acknowledged);
     assert!(res.message.unwrap().starts_with("HTTP"));
 
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await; // ensure server processed
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     assert_eq!(&*state.body.lock().unwrap(), b"out");
 
     server_handle.abort();
@@ -62,7 +76,9 @@ async fn http_outbound_posts_out_msg_if_present() {
 async fn http_outbound_falls_back_to_in_msg() {
     let state = CaptureState::new();
     let body_arc = state.body.clone();
-    let addr: SocketAddr = "127.0.0.1:31111".parse().unwrap();
+    let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = std_listener.local_addr().unwrap().port();
+    std_listener.set_nonblocking(true).expect("nonblocking");
     let make = make_service_fn(move |_conn| {
         let body_arc = body_arc.clone();
         async move {
@@ -76,12 +92,14 @@ async fn http_outbound_falls_back_to_in_msg() {
             }))
         }
     });
-    let server = Server::bind(&addr).serve(make);
+    let server = Server::from_tcp(std_listener)
+        .expect("hyper from_tcp")
+        .serve(make);
     let server_handle = tokio::spawn(server);
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await; // wait for bind
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     let adapter = HttpOutboundAdapter::builder()
-        .url("http://127.0.0.1:31111/")
+        .url(format!("http://127.0.0.1:{port}/"))
         .build()
         .unwrap();
     let exchange = Exchange::new(Message::from_text("only-in"));
@@ -89,42 +107,18 @@ async fn http_outbound_falls_back_to_in_msg() {
     let res = adapter.dispatch(&exchange).await.expect("dispatch");
     assert!(res.acknowledged);
 
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await; // ensure server processed
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     assert_eq!(&*state.body.lock().unwrap(), b"only-in");
 
     server_handle.abort();
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn http_outbound_staged_builder() {
-    use allora::adapter::Adapter; // staged builder root
-    let addr: SocketAddr = "127.0.0.1:32031".parse().unwrap();
-    let make = make_service_fn(move |_conn| async move {
-        Ok::<_, hyper::Error>(service_fn(move |req: Request<Body>| async move {
-            let bytes = hyper::body::to_bytes(req.into_body()).await.unwrap();
-            Ok::<_, hyper::Error>(Response::new(Body::from(bytes)))
-        }))
-    });
-    let server_handle = tokio::spawn(Server::bind(&addr).serve(make));
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    let outbound = Adapter::outbound()
-        .http()
-        .url("http://127.0.0.1:32031/")
-        .id("staged-outbound")
-        .build()
-        .expect("build outbound");
-    assert_eq!(outbound.id(), "staged-outbound");
-    let mut exchange = Exchange::new(Message::from_text("hello"));
-    exchange.out_msg = Some(Message::from_text("world"));
-    let res = outbound.dispatch(&exchange).await.expect("dispatch");
-    assert!(res.acknowledged);
-    server_handle.abort();
-}
+// ─────────────────────────────────────────────────────────────────────────
+// Builder-level URL validation — fail-fast guarantees.
+// ─────────────────────────────────────────────────────────────────────────
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn http_outbound_rejects_invalid_url() {
-    // Mirror the spec-parser validation: the builder should refuse an
-    // unparseable URL at build time rather than crashing during dispatch.
+#[test]
+fn http_outbound_rejects_invalid_url() {
     let err = HttpOutboundAdapter::builder()
         .url(":::not a url")
         .build()
@@ -136,8 +130,8 @@ async fn http_outbound_rejects_invalid_url() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn http_outbound_rejects_unsupported_scheme() {
+#[test]
+fn http_outbound_rejects_unsupported_scheme() {
     let err = HttpOutboundAdapter::builder()
         .url("ftp://example.com/")
         .build()
@@ -149,27 +143,37 @@ async fn http_outbound_rejects_unsupported_scheme() {
     );
 }
 
-// -------------------------------------------------------------------------
-// HTTPS roundtrip
-// -------------------------------------------------------------------------
-//
-// Proves that the new `reqwest`-backed adapter actually speaks TLS, not just
-// that a `https://` URL is accepted at config-load time.
+#[test]
+fn http_outbound_builder_caches_parsed_url() {
+    let adapter = HttpOutboundAdapter::builder()
+        .url("https://devnet.fialucci.org/oracle/submissions")
+        .build()
+        .expect("build succeeds");
+    assert_eq!(adapter.url().scheme(), "https");
+    assert_eq!(adapter.url().host_str(), Some("devnet.fialucci.org"));
+    assert_eq!(adapter.url().path(), "/oracle/submissions");
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// HTTPS roundtrip — proves the new code path actually negotiates TLS.
+// ─────────────────────────────────────────────────────────────────────────
 //
 // Topology:
-//   - Local TLS listener on 127.0.0.1:<ephemeral>, certificate minted on the
-//     fly by `rcgen` for CN=localhost. Self-signed.
-//   - One-shot accept loop: parse HTTP/1.1 request, capture body, reply
-//     `HTTP/1.1 200 OK\r\n\r\nhttps-ok`.
-//   - Client = the production `HttpOutboundAdapter`, with the
-//     `dangerous_accept_invalid_certs` builder switch turned on so it accepts
-//     the self-signed cert. Production callers never set this switch — it has
-//     no spec field and the YAML parser cannot enable it.
+//   * Local TLS listener on 127.0.0.1:<ephemeral>, self-signed cert minted
+//     at test time by `rcgen` for CN=localhost.
+//   * One-shot accept loop reads the HTTP/1.1 request, captures the body,
+//     and replies `HTTP/1.1 200 OK\r\n\r\nhttps-ok`.
+//   * Client = the production `HttpOutboundAdapter`, with the
+//     `dangerous_accept_invalid_certs` builder switch turned on so it
+//     trusts the self-signed cert. Production callers never set this
+//     switch — it has no spec field and the YAML parser cannot enable it.
 //
 // What this asserts:
 //   * Adapter built with `url: https://...` actually dials TLS.
 //   * The TLS handshake completes, the request is delivered, response body
-//     comes back via the new `reqwest` codepath.
+//     comes back via the new `reqwest` code path.
+//   * The body the server received is the body we sent over TLS.
+
 mod https_roundtrip {
     use super::*;
     use std::sync::Arc as StdArc;
@@ -178,13 +182,13 @@ mod https_roundtrip {
     use tokio_rustls::TlsAcceptor;
 
     fn make_self_signed() -> (Vec<u8>, Vec<u8>) {
-        // `generate_simple_self_signed` returns a struct whose `cert` is
-        // DER-encoded and whose `signing_key` exposes the PKCS#8 DER form
-        // (rcgen 0.13 API).
+        // rcgen 0.13: `cert.der()` returns `&CertificateDer<'_>` (impls
+        // `AsRef<[u8]>`), `key_pair.serialize_der()` returns a PKCS#8 DER
+        // private key as `Vec<u8>`.
         let issued = rcgen::generate_simple_self_signed(vec!["localhost".into()])
             .expect("rcgen self-signed");
-        let cert_der = issued.cert.der().to_vec();
-        let key_der = issued.signing_key.serialize_der();
+        let cert_der = issued.cert.der().as_ref().to_vec();
+        let key_der = issued.key_pair.serialize_der();
         (cert_der, key_der)
     }
 
@@ -193,8 +197,9 @@ mod https_roundtrip {
         let priv_key = rustls::pki_types::PrivateKeyDer::Pkcs8(
             rustls::pki_types::PrivatePkcs8KeyDer::from(key_der),
         );
-        // Install the ring crypto provider exactly once per process; multiple
-        // tests in the same binary would otherwise race here.
+        // Install the ring crypto provider once per process (idempotent —
+        // subsequent installs in the same process are a no-op error which
+        // we swallow). Multiple tests in this binary can call this safely.
         let _ = rustls::crypto::ring::default_provider().install_default();
         rustls::ServerConfig::builder()
             .with_no_client_auth()
@@ -207,16 +212,9 @@ mod https_roundtrip {
         acceptor: TlsAcceptor,
         captured: Arc<Mutex<Vec<u8>>>,
     ) {
-        // Accept a single connection. Sufficient for the test; the adapter
-        // only sends one request.
         let (sock, _addr) = listener.accept().await.expect("accept");
-        let mut tls = match acceptor.accept(sock).await {
-            Ok(s) => s,
-            Err(e) => panic!("tls accept failed: {e}"),
-        };
-        // Read the request fully into a buffer (small payload — single read
-        // cycle is enough for the test). We split on the header/body
-        // boundary to capture the body bytes.
+        let mut tls = acceptor.accept(sock).await.expect("tls accept");
+        // Drain headers + body. Single-request lifetime, small payloads.
         let mut buf = Vec::with_capacity(1024);
         let mut tmp = [0u8; 1024];
         loop {
@@ -225,13 +223,9 @@ mod https_roundtrip {
                 break;
             }
             buf.extend_from_slice(&tmp[..n]);
-            // Heuristic: once we've seen the body we expect, stop reading.
             if let Some(idx) = find_double_crlf(&buf) {
-                // Need to also capture Content-Length bytes after the
-                // headers. Easiest: parse Content-Length and read that many.
                 let header_block = &buf[..idx];
-                let content_length =
-                    parse_content_length(header_block).unwrap_or(0);
+                let content_length = parse_content_length(header_block).unwrap_or(0);
                 let body_start = idx + 4;
                 while buf.len() < body_start + content_length {
                     let n2 = tls.read(&mut tmp).await.expect("tls read body");
@@ -276,11 +270,9 @@ mod https_roundtrip {
 
         let captured = Arc::new(Mutex::new(Vec::<u8>::new()));
         let captured_cl = captured.clone();
-        let server_task = tokio::spawn(async move {
-            serve_one(listener, acceptor, captured_cl).await;
-        });
+        let server_task =
+            tokio::spawn(async move { serve_one(listener, acceptor, captured_cl).await });
 
-        // Small grace period to ensure the accept loop is ready.
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         let url = format!("https://localhost:{port}/oracle/submissions");
@@ -304,13 +296,7 @@ mod https_roundtrip {
         assert_eq!(res.status_code, Some(200));
         assert_eq!(res.body.as_deref(), Some("https-ok"));
 
-        // Server got our actual payload over TLS — proves the new code path
-        // really negotiated TLS rather than (e.g.) silently downgrading.
-        let _ = tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            server_task,
-        )
-        .await;
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), server_task).await;
         let got = captured.lock().unwrap().clone();
         assert_eq!(
             got, b"https-payload",

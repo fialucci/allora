@@ -10,11 +10,12 @@ pub struct HttpOutboundAdapterSpecRootV1 {
 #[derive(Debug, Clone, Deserialize)]
 pub struct HttpOutboundAdapterSpecBlock {
     pub id: Option<String>,
-    pub host: String,
-    pub port: u16,
-    #[serde(rename = "base-path")]
-    pub base_path: Option<String>,
-    pub path: Option<String>,
+    /// Full target URL (must include scheme — `http://` or `https://`).
+    ///
+    /// Replaces the legacy `host` + `port` + `base-path` triple as of
+    /// 0.0.9. Parsing happens in the YAML parser; invalid URLs surface
+    /// as `Error::Serialization` rather than panicking at dispatch time.
+    pub url: String,
     pub method: Option<String>,
     #[serde(rename = "use-out-msg")]
     pub use_out_msg: Option<bool>,
@@ -38,21 +39,16 @@ impl HttpOutboundAdapterSpec {
     pub(crate) fn from_block(b: HttpOutboundAdapterSpecBlock) -> Self {
         Self(b)
     }
-    pub fn new(
-        host: &str,
-        port: u16,
-        base_path: &str,
-        path: Option<&str>,
-        method: Option<&str>,
-        id: Option<&str>,
-        use_out_msg: bool,
-    ) -> Self {
+    /// Programmatic constructor.
+    ///
+    /// `url` must include the scheme (`http://` or `https://`). It is not
+    /// validated here — validation happens when the spec is constructed
+    /// via the YAML parser, or when the adapter is built. Callers using
+    /// this constructor directly are expected to provide a parseable URL.
+    pub fn new(url: &str, method: Option<&str>, id: Option<&str>, use_out_msg: bool) -> Self {
         let blk = HttpOutboundAdapterSpecBlock {
             id: id.map(|s| s.to_string()),
-            host: host.to_string(),
-            port,
-            base_path: Some(base_path.to_string()),
-            path: path.map(|p| p.to_string()),
+            url: url.to_string(),
             method: method.map(|m| m.to_string()),
             use_out_msg: Some(use_out_msg),
             from: None,
@@ -72,31 +68,15 @@ impl HttpOutboundAdapterSpec {
         self.0.to = Some(to.into());
         self
     }
-    pub fn with_id(
-        id: &str,
-        host: &str,
-        port: u16,
-        base_path: &str,
-        path: Option<&str>,
-        method: Option<&str>,
-        use_out_msg: bool,
-    ) -> Self {
-        Self::new(host, port, base_path, path, method, Some(id), use_out_msg)
+    pub fn with_id(id: &str, url: &str, method: Option<&str>, use_out_msg: bool) -> Self {
+        Self::new(url, method, Some(id), use_out_msg)
     }
     pub fn id(&self) -> Option<&str> {
         self.0.id.as_deref()
     }
-    pub fn host(&self) -> &str {
-        &self.0.host
-    }
-    pub fn port(&self) -> u16 {
-        self.0.port
-    }
-    pub fn base_path(&self) -> &str {
-        self.0.base_path.as_deref().unwrap_or("/")
-    }
-    pub fn path(&self) -> Option<&str> {
-        self.0.path.as_deref()
+    /// Target URL as configured (raw string). Includes scheme.
+    pub fn url(&self) -> &str {
+        &self.0.url
     }
     pub fn method(&self) -> Option<&str> {
         self.0.method.as_deref()

@@ -1,7 +1,14 @@
+//! Integration tests for the http-outbound-adapter YAML spec parser.
+//!
+//! Validates the 0.0.9 `url:` schema: both happy-path deserialization and
+//! the eager URL validation that surfaces invalid configuration at config
+//! load time (not at first dispatch).
+
+use allora_runtime::error::Error as RuntimeError;
 use allora_runtime::spec::HttpOutboundAdapterSpecYamlParser;
 
 #[test]
-fn http_outbound_adapter_spec_parse_success_full() {
+fn parse_success_full() {
     let raw = r#"version: 1
 http-outbound-adapter:
   id: http.outboundEcho
@@ -18,7 +25,7 @@ http-outbound-adapter:
 }
 
 #[test]
-fn http_outbound_adapter_spec_parse_success_minimal_defaults() {
+fn parse_success_minimal_defaults() {
     let raw = r#"version: 1
 http-outbound-adapter:
   url: https://10.0.0.5/
@@ -32,28 +39,28 @@ http-outbound-adapter:
 }
 
 #[test]
-fn http_outbound_adapter_spec_parse_success_https() {
-    // Sanity check that the `https://` scheme is accepted by the parser.
-    // The actual HTTPS dispatch path is exercised in
-    // `tests/http_outbound_adapter.rs::http_outbound_dispatches_over_https`.
+fn parse_success_https() {
+    // Confirms the `https://` scheme is accepted by the parser. The actual
+    // HTTPS dispatch path is exercised in
+    // `allora-http`'s `http_outbound_dispatches_over_https` integration test.
     let raw = r#"version: 1
 http-outbound-adapter:
   id: chain.submit
   url: https://devnet.fialucci.org/oracle/submissions
   method: POST
 "#;
-    let spec = HttpOutboundAdapterSpecYamlParser::parse_str(raw)
-        .expect("parse https outbound spec");
+    let spec =
+        HttpOutboundAdapterSpecYamlParser::parse_str(raw).expect("parse https outbound spec");
     assert_eq!(spec.url(), "https://devnet.fialucci.org/oracle/submissions");
 }
 
 #[test]
-fn http_outbound_adapter_spec_missing_root_error() {
+fn missing_root_error() {
     let raw = "version: 1";
     let err =
         HttpOutboundAdapterSpecYamlParser::parse_str(raw).expect_err("expected missing root error");
     match err {
-        allora::Error::Serialization(msg) => {
+        RuntimeError::Serialization(msg) => {
             assert!(msg.contains("missing 'http-outbound-adapter'"))
         }
         other => panic!("unexpected error: {other:?}"),
@@ -61,16 +68,16 @@ fn http_outbound_adapter_spec_missing_root_error() {
 }
 
 #[test]
-fn http_outbound_adapter_spec_missing_url_error() {
+fn missing_url_error() {
     let raw = r#"version: 1
 http-outbound-adapter:
   method: POST
 "#;
-    let err = HttpOutboundAdapterSpecYamlParser::parse_str(raw)
-        .expect_err("expected missing url error");
+    let err =
+        HttpOutboundAdapterSpecYamlParser::parse_str(raw).expect_err("expected missing url error");
     match err {
         // Serde reports the missing field at the deserialization stage.
-        allora::Error::Serialization(msg) => {
+        RuntimeError::Serialization(msg) => {
             assert!(msg.contains("url"), "error should mention url, got: {msg}");
         }
         other => panic!("unexpected error: {other:?}"),
@@ -78,7 +85,7 @@ http-outbound-adapter:
 }
 
 #[test]
-fn http_outbound_adapter_spec_empty_url_error() {
+fn empty_url_error() {
     let raw = r#"version: 1
 http-outbound-adapter:
   url: ""
@@ -86,15 +93,13 @@ http-outbound-adapter:
     let err =
         HttpOutboundAdapterSpecYamlParser::parse_str(raw).expect_err("expected empty url error");
     match err {
-        allora::Error::Serialization(msg) => {
-            assert!(msg.contains("url must not be empty"))
-        }
+        RuntimeError::Serialization(msg) => assert!(msg.contains("url must not be empty")),
         other => panic!("unexpected error: {other:?}"),
     }
 }
 
 #[test]
-fn http_outbound_adapter_spec_invalid_url_error() {
+fn invalid_url_error() {
     // Garbage URL; parser should reject it at config-load time rather than
     // failing later at dispatch.
     let raw = r#"version: 1
@@ -104,7 +109,7 @@ http-outbound-adapter:
     let err =
         HttpOutboundAdapterSpecYamlParser::parse_str(raw).expect_err("expected invalid url error");
     match err {
-        allora::Error::Serialization(msg) => {
+        RuntimeError::Serialization(msg) => {
             assert!(msg.contains("url invalid"), "got: {msg}");
         }
         other => panic!("unexpected error: {other:?}"),
@@ -112,7 +117,7 @@ http-outbound-adapter:
 }
 
 #[test]
-fn http_outbound_adapter_spec_unsupported_scheme_error() {
+fn unsupported_scheme_error() {
     let raw = r#"version: 1
 http-outbound-adapter:
   url: ftp://example.com/file
@@ -120,7 +125,7 @@ http-outbound-adapter:
     let err = HttpOutboundAdapterSpecYamlParser::parse_str(raw)
         .expect_err("expected unsupported scheme error");
     match err {
-        allora::Error::Serialization(msg) => {
+        RuntimeError::Serialization(msg) => {
             assert!(msg.contains("unsupported scheme"), "got: {msg}");
         }
         other => panic!("unexpected error: {other:?}"),
@@ -128,7 +133,7 @@ http-outbound-adapter:
 }
 
 #[test]
-fn http_outbound_adapter_spec_empty_id_error() {
+fn empty_id_error() {
     let raw = r#"version: 1
 http-outbound-adapter:
   id: ""
@@ -137,13 +142,13 @@ http-outbound-adapter:
     let err =
         HttpOutboundAdapterSpecYamlParser::parse_str(raw).expect_err("expected empty id error");
     match err {
-        allora::Error::Serialization(msg) => assert!(msg.contains("id must not be empty")),
+        RuntimeError::Serialization(msg) => assert!(msg.contains("id must not be empty")),
         other => panic!("unexpected error: {other:?}"),
     }
 }
 
 #[test]
-fn http_outbound_adapter_spec_unsupported_version_error() {
+fn unsupported_version_error() {
     let raw = r#"version: 2
 http-outbound-adapter:
   url: http://127.0.0.1:8080/
@@ -151,7 +156,7 @@ http-outbound-adapter:
     let err = HttpOutboundAdapterSpecYamlParser::parse_str(raw)
         .expect_err("expected unsupported version error");
     match err {
-        allora::Error::Serialization(msg) => assert!(msg.contains("unsupported version")),
+        RuntimeError::Serialization(msg) => assert!(msg.contains("unsupported version")),
         other => panic!("unexpected error: {other:?}"),
     }
 }

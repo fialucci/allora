@@ -913,9 +913,7 @@ channels:
     id: dispatch_results
 http-outbound-adapters:
   - id: test-out
-    host: 127.0.0.1
-    port: {port}
-    base-path: /
+    url: http://127.0.0.1:{port}/
     method: POST
     from: outbound_requests
     to: dispatch_results
@@ -965,9 +963,7 @@ channels:
     id: outbound_requests
 http-outbound-adapters:
   - id: fire-forget
-    host: 127.0.0.1
-    port: {port}
-    base-path: /
+    url: http://127.0.0.1:{port}/
     method: POST
     from: outbound_requests
 "#
@@ -1024,9 +1020,7 @@ channels:
     id: outbound_requests
 http-outbound-adapters:
   - id: misconfigured
-    host: 127.0.0.1
-    port: {port}
-    base-path: /
+    url: http://127.0.0.1:{port}/
     method: POST
     from: outbound_requests
     to: nonexistent
@@ -1066,9 +1060,7 @@ channels:
     id: anything
 http-outbound-adapters:
   - id: static-out
-    host: 127.0.0.1
-    port: 9
-    base-path: /
+    url: http://127.0.0.1:9/
 "#;
         let rt = build_runtime_from_str(yaml, crate::dsl::DslFormat::Yaml)?;
         assert_eq!(rt.http_outbound_adapter_count(), 1);
