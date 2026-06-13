@@ -1,6 +1,6 @@
 [package]
 name = "allora-http"
-version = "0.0.9"
+version = "0.0.10"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["Allora Contributors"]
@@ -17,7 +17,7 @@ name = "allora_http"
 path = "src/lib.rs"
 
 [dependencies]
-allora-core = { version = "0.0.9", path = "../core" }
+allora-core = { version = "0.0.10", path = "../core" }
 tokio = { version = "1.39", features = ["rt", "rt-multi-thread", "macros", "sync"] }
 hyper = { version = "0.14", features = ["full"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
@@ -32,3 +32,7 @@ rcgen = "0.13"
 tokio-rustls = "0.26"
 rustls = { version = "0.23", features = ["ring"] }
 rustls-pemfile = "2"
+# `no-env-filter` is required because this is an integration test (in `tests/`)
+# — `tracing-test` defaults to a per-crate filter that wouldn't catch events
+# from the `allora-http` crate under test. See `tracing-test` docs.
+tracing-test = { version = "0.2", features = ["no-env-filter"] }

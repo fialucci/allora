@@ -24,6 +24,22 @@
 //! Network / protocol errors map to `Error::other`. Non-success HTTP status still returns
 //! `OutboundDispatchResult` (acknowledged = status.is_success()).
 //!
+//! # Observability (0.0.10+)
+//! Every failure path in [`HttpOutboundAdapter::dispatch`] emits a structured
+//! `tracing::warn!` event so operators can diagnose silent dispatch problems
+//! in logs (e.g. CloudWatch). The four failure classes are:
+//!
+//! 1. **Serialization** of a `Payload::Json` body fails.
+//! 2. **Transport/connection** error from `reqwest` (DNS, TCP, TLS, …).
+//! 3. **Body read** failure after a response was received.
+//! 4. **Non-success HTTP status** (any non-2xx); the first 512 chars of the
+//!    response body are included as `body_preview`.
+//!
+//! Successful dispatches are intentionally silent — the happy path runs at
+//! high frequency and `info!` here would flood log sinks. The dispatch
+//! contract (return type and channel-propagation semantics) is unchanged;
+//! the new log calls are purely additive.
+//!
 //! # Example
 //! ```no_run
 //! use allora_core::{adapter::OutboundAdapter, Exchange, Message};
@@ -173,21 +189,64 @@ impl OutboundAdapter for HttpOutboundAdapter {
         let bytes: Vec<u8> = match &msg_ref.payload {
             Payload::Text(s) => s.clone().into_bytes(),
             Payload::Bytes(b) => b.clone(),
-            Payload::Json(v) => {
-                serde_json::to_vec(v).map_err(|e| Error::serialization(e.to_string()))?
-            }
+            Payload::Json(v) => match serde_json::to_vec(v) {
+                Ok(b) => b,
+                Err(e) => {
+                    tracing::warn!(
+                        url = %self.url.as_str(),
+                        error = %e,
+                        "HttpOutboundAdapter: failed to serialize JSON payload"
+                    );
+                    return Err(Error::serialization(e.to_string()));
+                }
+            },
             Payload::Empty => Vec::new(),
         };
-        let resp = self
+        let resp = match self
             .client
             .request(self.method.clone(), self.url.clone())
             .header("Content-Type", "application/octet-stream")
             .body(bytes)
             .send()
             .await
-            .map_err(|e| Error::other(e.to_string()))?;
+        {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(
+                    url = %self.url.as_str(),
+                    method = %self.method,
+                    error = %e,
+                    "HttpOutboundAdapter: transport error during dispatch"
+                );
+                return Err(Error::other(e.to_string()));
+            }
+        };
         let status = resp.status();
-        let body_string = resp.text().await.map_err(|e| Error::other(e.to_string()))?;
+        let body_string = match resp.text().await {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!(
+                    url = %self.url.as_str(),
+                    method = %self.method,
+                    status = status.as_u16(),
+                    error = %e,
+                    "HttpOutboundAdapter: failed to read response body"
+                );
+                return Err(Error::other(e.to_string()));
+            }
+        };
+        if !status.is_success() {
+            // Char-aware truncation: byte slicing here would panic on a
+            // multi-byte UTF-8 boundary if the server returns non-ASCII.
+            let body_preview: String = body_string.chars().take(512).collect();
+            tracing::warn!(
+                url = %self.url.as_str(),
+                method = %self.method,
+                status = status.as_u16(),
+                body_preview = %body_preview,
+                "HttpOutboundAdapter: non-success HTTP status"
+            );
+        }
         Ok(OutboundDispatchResult {
             acknowledged: status.is_success(),
             message: Some(format!("HTTP {}", status)),

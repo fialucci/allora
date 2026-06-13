@@ -155,6 +155,72 @@ fn http_outbound_builder_caches_parsed_url() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Error-path observability — 0.0.10 adds structured `tracing::warn!`
+// events on every dispatch failure class. We verify the non-2xx path
+// (the most common production failure mode — chain rejects the signed
+// payload with 4xx, etc.) actually emits a warn event with the status
+// code and a body preview. `#[traced_test]` from `tracing-test` installs
+// a per-test subscriber and exposes `logs_contain()` for assertions.
+//
+// We intentionally don't cover all four failure classes here (transport,
+// body-read, JSON-serialization) — each requires bespoke harness setup
+// (kill connection mid-stream, malformed Content-Length, custom serde
+// type). The non-2xx case is the highest-value coverage: it's the most
+// likely production failure and the only one that returns a successful
+// `Result` from `dispatch`, so it's the easiest to silently miss.
+// ─────────────────────────────────────────────────────────────────────────
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tracing_test::traced_test]
+async fn non_success_status_emits_warn_log() {
+    let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = std_listener.local_addr().unwrap().port();
+    std_listener.set_nonblocking(true).expect("nonblocking");
+    let make = make_service_fn(|_conn| async {
+        Ok::<_, hyper::Error>(service_fn(|_req: Request<Body>| async {
+            let resp = Response::builder()
+                .status(500)
+                .body(Body::from("upstream blew up"))
+                .unwrap();
+            Ok::<_, hyper::Error>(resp)
+        }))
+    });
+    let server = Server::from_tcp(std_listener)
+        .expect("hyper from_tcp")
+        .serve(make);
+    let server_handle = tokio::spawn(server);
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let adapter = HttpOutboundAdapter::builder()
+        .url(format!("http://127.0.0.1:{port}/"))
+        .build()
+        .unwrap();
+    let exchange = Exchange::new(Message::from_text("boom"));
+
+    // Dispatch still succeeds (contract unchanged) — `acknowledged` flips
+    // to false but the call itself returns `Ok`.
+    let res = adapter.dispatch(&exchange).await.expect("dispatch");
+    assert!(!res.acknowledged);
+    assert_eq!(res.status_code, Some(500));
+
+    // The new structured warn event should have fired.
+    assert!(
+        logs_contain("HttpOutboundAdapter: non-success HTTP status"),
+        "expected non-success warn event in captured logs"
+    );
+    assert!(
+        logs_contain("status=500"),
+        "expected `status=500` structured field in captured logs"
+    );
+    assert!(
+        logs_contain("upstream blew up"),
+        "expected response body preview in captured logs"
+    );
+
+    server_handle.abort();
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // HTTPS roundtrip — proves the new code path actually negotiates TLS.
 // ─────────────────────────────────────────────────────────────────────────
 //
